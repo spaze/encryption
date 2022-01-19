@@ -24,6 +24,11 @@
 		"phpstan/phpstan": "^0.12.59",
 		"nette/tester": "^2.4"
 	},
+	"config": {
+		"allow-plugins": {
+			"dealerdirect/phpcodesniffer-composer-installer": true
+		}
+	},
 	"scripts": {
 		"lint": "vendor/bin/parallel-lint --colors src tests",
 		"phpcs": "vendor/bin/phpcs src tests",
