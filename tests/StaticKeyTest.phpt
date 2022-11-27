@@ -38,10 +38,10 @@ class StaticKeyTest extends TestCase
 				self::ACTIVE_KEY => bin2hex(random_bytes(32)),
 			],
 		];
-		$this->activeKeys = [
+		$this->activeKeyIds = [
 			self::KEY_GROUP => self::ACTIVE_KEY,
 		];
-		$this->encryption = new StaticKey(self::KEY_GROUP, $this->keys, $this->activeKeys);
+		$this->encryption = new StaticKey(self::KEY_GROUP, $this->keys, $this->activeKeyIds);
 	}
 
 
