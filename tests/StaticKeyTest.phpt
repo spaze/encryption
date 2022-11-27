@@ -1,4 +1,5 @@
 <?php
+/** @noinspection PhpUnhandledExceptionInspection */
 declare(strict_types = 1);
 
 namespace Spaze\Encryption\Symmetric;
@@ -21,13 +22,12 @@ class StaticKeyTest extends TestCase
 	private const ACTIVE_KEY = 'dev2';
 
 	/** @var string[][] */
-	private $keys;
+	private array $keys;
 
 	/** @var string[] */
-	private $activeKeyIds;
+	private array $activeKeyIds;
 
-	/** @var SymmetricKey */
-	private $encryption;
+	private StaticKey $encryption;
 
 
 	protected function setUp(): void
