@@ -24,7 +24,7 @@ class StaticKeyTest extends TestCase
 	private $keys;
 
 	/** @var string[] */
-	private $activeKeyIds;
+	private $activeKeys;
 
 	/** @var SymmetricKey */
 	private $encryption;
