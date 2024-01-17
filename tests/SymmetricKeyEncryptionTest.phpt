@@ -4,13 +4,14 @@ declare(strict_types = 1);
 
 namespace Spaze\Encryption\Symmetric;
 
+use Spaze\Encryption\SymmetricKeyEncryption;
 use Tester\Assert;
 use Tester\TestCase;
 
 require __DIR__ . '/bootstrap.php';
 
 /** @testCase */
-class StaticKeyTest extends TestCase
+class SymmetricKeyEncryptionTest extends TestCase
 {
 
 	private const KEY_GROUP = 'token';
@@ -27,7 +28,7 @@ class StaticKeyTest extends TestCase
 	/** @var string[] */
 	private array $activeKeyIds;
 
-	private StaticKey $encryption;
+	private SymmetricKeyEncryption $encryption;
 
 
 	protected function setUp(): void
@@ -41,7 +42,7 @@ class StaticKeyTest extends TestCase
 		$this->activeKeyIds = [
 			self::KEY_GROUP => self::ACTIVE_KEY,
 		];
-		$this->encryption = new StaticKey(self::KEY_GROUP, $this->keys, $this->activeKeyIds);
+		$this->encryption = new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, $this->activeKeyIds);
 	}
 
 
@@ -53,14 +54,14 @@ class StaticKeyTest extends TestCase
 
 	public function testEncryptInactiveKeyDecrypt(): void
 	{
-		$inactiveKeyEncryption = new StaticKey(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => self::INACTIVE_KEY]);
+		$inactiveKeyEncryption = new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => self::INACTIVE_KEY]);
 		Assert::same(self::PLAINTEXT, $this->encryption->decrypt($inactiveKeyEncryption->encrypt(self::PLAINTEXT)));
 	}
 
 
 	public function testNeedsReEncrypt(): void
 	{
-		$inactiveKeyEncryption = new StaticKey(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => self::INACTIVE_KEY]);
+		$inactiveKeyEncryption = new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => self::INACTIVE_KEY]);
 		Assert::false($inactiveKeyEncryption->needsReEncrypt($inactiveKeyEncryption->encrypt(self::PLAINTEXT)));
 		Assert::true($this->encryption->needsReEncrypt($inactiveKeyEncryption->encrypt(self::PLAINTEXT)));
 		Assert::true($inactiveKeyEncryption->needsReEncrypt($this->encryption->encrypt(self::PLAINTEXT)));
@@ -68,4 +69,4 @@ class StaticKeyTest extends TestCase
 
 }
 
-(new StaticKeyTest())->run();
+(new SymmetricKeyEncryptionTest())->run();

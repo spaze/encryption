@@ -30,21 +30,21 @@ to generate a key. You can have multiple keys in each group (here we see two gro
 Then define services for each key group (feel free to commit this):
 ```
 services:
-    emailEncryption: \Spaze\Encryption\Symmetric\StaticKey('email', %encryption.keys%, %encryption.activeKeyIds%)
-    passwordHashEncryption: \Spaze\Encryption\Symmetric\StaticKey('passwordHash', %encryption.keys%, %encryption.activeKeyIds%)
+    emailEncryption: \Spaze\Encryption\SymmetricKeyEncryption('email', %encryption.keys%, %encryption.activeKeyIds%)
+    passwordHashEncryption: \Spaze\Encryption\SymmetricKeyEncryption('passwordHash', %encryption.keys%, %encryption.activeKeyIds%)
 ```
 
 Use the services in this class which needs to encrypt and decrypt email addresses for whatever reason:
 ```php
-use Spaze\Encryption\Symmetric\StaticKey as StaticKeyEncryption;
+use Spaze\Encryption\SymmetricKeyEncryption;
 
 class Something
 {
 
-    /** @var StaticKeyEncryption */
+    /** @var SymmetricKeyEncryption */
     private $emailEncryption;
 
-    public function __construct(StaticKeyEncryption $emailEncryption)
+    public function __construct(SymmetricKeyEncryption $emailEncryption)
     {
         // ...
     }

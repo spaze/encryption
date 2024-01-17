@@ -1,7 +1,7 @@
 <?php
 declare(strict_types = 1);
 
-namespace Spaze\Encryption\Symmetric;
+namespace Spaze\Encryption;
 
 use OutOfBoundsException;
 use OutOfRangeException;
@@ -17,12 +17,7 @@ use ParagonIE\HiddenString\HiddenString;
 use SodiumException;
 use TypeError;
 
-/**
- * StaticKey encryption service.
- *
- * @author Michal Špaček
- */
-class StaticKey
+class SymmetricKeyEncryption
 {
 
 	private const KEY_CIPHERTEXT_SEPARATOR = '$';
