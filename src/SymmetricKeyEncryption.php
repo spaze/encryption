@@ -3,8 +3,6 @@ declare(strict_types = 1);
 
 namespace Spaze\Encryption;
 
-use OutOfBoundsException;
-use OutOfRangeException;
 use ParagonIE\ConstantTime\Hex;
 use ParagonIE\Halite\Alerts\CannotPerformOperation;
 use ParagonIE\Halite\Alerts\InvalidDigestLength;
@@ -16,6 +14,8 @@ use ParagonIE\Halite\Symmetric\Crypto;
 use ParagonIE\Halite\Symmetric\EncryptionKey;
 use ParagonIE\HiddenString\HiddenString;
 use SodiumException;
+use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
+use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
 use TypeError;
 use function count;
 use function explode;
@@ -46,6 +46,7 @@ class SymmetricKeyEncryption
 	 * @throws InvalidType
 	 * @throws SodiumException
 	 * @throws TypeError
+	 * @throws UnknownEncryptionKeyIdException
 	 */
 	public function encrypt(string $data): string
 	{
@@ -65,6 +66,8 @@ class SymmetricKeyEncryption
 	 * @throws InvalidType
 	 * @throws SodiumException
 	 * @throws TypeError
+	 * @throws UnknownEncryptionKeyIdException
+	 * @throws InvalidNumberOfComponentsException
 	 */
 	public function decrypt(string $data): string
 	{
@@ -76,6 +79,8 @@ class SymmetricKeyEncryption
 
 	/**
 	 * Checks if the given data are encrypted using the active key.
+	 *
+	 * @throws InvalidNumberOfComponentsException
 	 */
 	public function needsReEncrypt(string $data): bool
 	{
@@ -87,13 +92,14 @@ class SymmetricKeyEncryption
 	/**
 	 * @throws InvalidKey
 	 * @throws TypeError
+	 * @throws UnknownEncryptionKeyIdException
 	 */
 	private function getKey(string $keyId): EncryptionKey
 	{
 		if (isset($this->keys[$this->keyGroup][$keyId])) {
 			return new EncryptionKey(new HiddenString(Hex::decode($this->keys[$this->keyGroup][$keyId])));
 		} else {
-			throw new OutOfRangeException('Unknown encryption key id: ' . $keyId);
+			throw new UnknownEncryptionKeyIdException($keyId);
 		}
 	}
 
@@ -106,12 +112,13 @@ class SymmetricKeyEncryption
 
 	/**
 	 * @return array{0:string, 1:string}
+	 * @throws InvalidNumberOfComponentsException
 	 */
 	private function parseKeyCipherText(string $data): array
 	{
 		$data = explode(self::KEY_CIPHERTEXT_SEPARATOR, $data);
 		if (count($data) !== 3) {
-			throw new OutOfBoundsException('Data must have cipher, key, iv, and ciphertext. Now look at the Oxford comma!');
+			throw new InvalidNumberOfComponentsException();
 		}
 		return [$data[1], $data[2]];
 	}

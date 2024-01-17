@@ -4,6 +4,10 @@ declare(strict_types = 1);
 
 namespace Spaze\Encryption;
 
+use OutOfBoundsException;
+use OutOfRangeException;
+use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
+use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
 use Tester\Assert;
 use Tester\TestCase;
 
@@ -24,9 +28,6 @@ class SymmetricKeyEncryptionTest extends TestCase
 	/** @var array<string, array<string, string>> */
 	private array $keys;
 
-	/** @var array<string, string> */
-	private array $activeKeyIds;
-
 	private SymmetricKeyEncryption $encryption;
 
 
@@ -38,10 +39,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 				self::ACTIVE_KEY => bin2hex(random_bytes(32)),
 			],
 		];
-		$this->activeKeyIds = [
-			self::KEY_GROUP => self::ACTIVE_KEY,
-		];
-		$this->encryption = new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, $this->activeKeyIds);
+		$this->encryption = new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => self::ACTIVE_KEY]);
 	}
 
 
@@ -64,6 +62,43 @@ class SymmetricKeyEncryptionTest extends TestCase
 		Assert::false($inactiveKeyEncryption->needsReEncrypt($inactiveKeyEncryption->encrypt(self::PLAINTEXT)));
 		Assert::true($this->encryption->needsReEncrypt($inactiveKeyEncryption->encrypt(self::PLAINTEXT)));
 		Assert::true($inactiveKeyEncryption->needsReEncrypt($this->encryption->encrypt(self::PLAINTEXT)));
+	}
+
+
+	public function testEncryptUnknownKey(): void
+	{
+		$e = Assert::exception(
+			function () {
+				(new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => 'foo']))->encrypt(self::PLAINTEXT);
+			},
+			UnknownEncryptionKeyIdException::class,
+			"Unknown encryption key id: 'foo'",
+		);
+		Assert::type(OutOfRangeException::class, $e);
+	}
+
+
+	/** @dataProvider getInvalidEncryptedData */
+	public function testDecryptInvalidCipherTextComponents(string $invalidData): void
+	{
+		$e = Assert::exception(
+			function () use ($invalidData) {
+				(new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => self::ACTIVE_KEY]))->decrypt($invalidData);
+			},
+			InvalidNumberOfComponentsException::class,
+			"Data format must be '\$keyId\$ciphertext'",
+		);
+		Assert::type(OutOfBoundsException::class, $e);
+	}
+
+
+	public function getInvalidEncryptedData(): array
+	{
+		return [
+			['nothing'],
+			['$keyId'],
+			['$key$ciphertext$whatsDiz'],
+		];
 	}
 
 }
