@@ -41,11 +41,9 @@ use Spaze\Encryption\SymmetricKeyEncryption;
 class Something
 {
 
-    /** @var SymmetricKeyEncryption */
-    private $emailEncryption;
-
-    public function __construct(SymmetricKeyEncryption $emailEncryption)
-    {
+    public function __construct(
+        private SymmetricKeyEncryption $emailEncryption,
+    ) {
         // ...
     }
 
