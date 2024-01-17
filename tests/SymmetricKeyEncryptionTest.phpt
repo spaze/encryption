@@ -2,9 +2,8 @@
 /** @noinspection PhpUnhandledExceptionInspection */
 declare(strict_types = 1);
 
-namespace Spaze\Encryption\Symmetric;
+namespace Spaze\Encryption;
 
-use Spaze\Encryption\SymmetricKeyEncryption;
 use Tester\Assert;
 use Tester\TestCase;
 
@@ -22,10 +21,10 @@ class SymmetricKeyEncryptionTest extends TestCase
 
 	private const ACTIVE_KEY = 'dev2';
 
-	/** @var string[][] */
+	/** @var array<string, array<string, string>> */
 	private array $keys;
 
-	/** @var string[] */
+	/** @var array<string, string> */
 	private array $activeKeyIds;
 
 	private SymmetricKeyEncryption $encryption;
