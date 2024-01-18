@@ -13,6 +13,7 @@ use ParagonIE\Halite\Alerts\InvalidType;
 use ParagonIE\Halite\Symmetric\Crypto;
 use ParagonIE\Halite\Symmetric\EncryptionKey;
 use ParagonIE\HiddenString\HiddenString;
+use SensitiveParameter;
 use SodiumException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
@@ -32,7 +33,7 @@ class SymmetricKeyEncryption
 	 */
 	public function __construct(
 		private string $keyGroup,
-		private array $keys,
+		#[SensitiveParameter] private array $keys,
 		private array $activeKeyIds,
 	) {
 	}
@@ -48,7 +49,7 @@ class SymmetricKeyEncryption
 	 * @throws TypeError
 	 * @throws UnknownEncryptionKeyIdException
 	 */
-	public function encrypt(string $data): string
+	public function encrypt(#[SensitiveParameter] string $data): string
 	{
 		$keyId = $this->getActiveKeyId();
 		$key = $this->getKey($keyId);

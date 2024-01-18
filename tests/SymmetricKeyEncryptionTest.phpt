@@ -101,6 +101,19 @@ class SymmetricKeyEncryptionTest extends TestCase
 		];
 	}
 
+
+	public function testEncryptSensitiveParameter(): void
+	{
+		$e = Assert::exception(
+			function () {
+				(new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => 'foo']))->encrypt(self::PLAINTEXT);
+			},
+			UnknownEncryptionKeyIdException::class,
+		);
+		Assert::notContains(self::PLAINTEXT, $e->getTraceAsString());
+		Assert::contains('SensitiveParameterValue', $e->getTraceAsString());
+	}
+
 }
 
 (new SymmetricKeyEncryptionTest())->run();
