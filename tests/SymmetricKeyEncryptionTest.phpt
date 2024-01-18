@@ -34,7 +34,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 	protected function setUp(): void
 	{
 		$this->keys = [
-			'token' => [
+			self::KEY_GROUP => [
 				self::INACTIVE_KEY => bin2hex(random_bytes(32)),
 				self::ACTIVE_KEY => bin2hex(random_bytes(32)),
 			],
@@ -112,6 +112,14 @@ class SymmetricKeyEncryptionTest extends TestCase
 		);
 		Assert::notContains(self::PLAINTEXT, $e->getTraceAsString());
 		Assert::contains('SensitiveParameterValue', $e->getTraceAsString());
+	}
+
+
+	public function testHiddenStringKeys(): void
+	{
+		$object = print_r(new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => self::ACTIVE_KEY]), true);
+		Assert::notContains($this->keys[self::KEY_GROUP][self::ACTIVE_KEY], $object);
+		Assert::notContains($this->keys[self::KEY_GROUP][self::INACTIVE_KEY], $object);
 	}
 
 }

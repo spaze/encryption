@@ -26,6 +26,9 @@ class SymmetricKeyEncryption
 
 	private const KEY_CIPHERTEXT_SEPARATOR = '$';
 
+	/** @var array<string, array<string, HiddenString>> */
+	private array $keys = [];
+
 
 	/**
 	 * @param array<string, array<string, string>> $keys key group => key id => key
@@ -33,9 +36,14 @@ class SymmetricKeyEncryption
 	 */
 	public function __construct(
 		private string $keyGroup,
-		#[SensitiveParameter] private array $keys,
+		#[SensitiveParameter] array $keys,
 		private array $activeKeyIds,
 	) {
+		foreach ($keys as $name => $group) {
+			foreach ($group as $id => $key) {
+				$this->keys[$name][$id] = new HiddenString(Hex::decode($key));
+			}
+		}
 	}
 
 
@@ -98,7 +106,7 @@ class SymmetricKeyEncryption
 	private function getKey(string $keyId): EncryptionKey
 	{
 		if (isset($this->keys[$this->keyGroup][$keyId])) {
-			return new EncryptionKey(new HiddenString(Hex::decode($this->keys[$this->keyGroup][$keyId])));
+			return new EncryptionKey($this->keys[$this->keyGroup][$keyId]);
 		} else {
 			throw new UnknownEncryptionKeyIdException($keyId);
 		}
