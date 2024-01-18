@@ -13,6 +13,7 @@ use ParagonIE\Halite\Alerts\InvalidType;
 use ParagonIE\Halite\Symmetric\Crypto;
 use ParagonIE\Halite\Symmetric\EncryptionKey;
 use ParagonIE\HiddenString\HiddenString;
+use SensitiveParameter;
 use SodiumException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
@@ -25,6 +26,9 @@ class SymmetricKeyEncryption
 
 	private const KEY_CIPHERTEXT_SEPARATOR = '$';
 
+	/** @var array<string, array<string, HiddenString>> */
+	private array $keys = [];
+
 
 	/**
 	 * @param array<string, array<string, string>> $keys key group => key id => key
@@ -32,9 +36,14 @@ class SymmetricKeyEncryption
 	 */
 	public function __construct(
 		private string $keyGroup,
-		private array $keys,
+		#[SensitiveParameter] array $keys,
 		private array $activeKeyIds,
 	) {
+		foreach ($keys as $name => $group) {
+			foreach ($group as $id => $key) {
+				$this->keys[$name][$id] = new HiddenString(Hex::decode($key));
+			}
+		}
 	}
 
 
@@ -48,7 +57,7 @@ class SymmetricKeyEncryption
 	 * @throws TypeError
 	 * @throws UnknownEncryptionKeyIdException
 	 */
-	public function encrypt(string $data): string
+	public function encrypt(#[SensitiveParameter] string $data): string
 	{
 		$keyId = $this->getActiveKeyId();
 		$key = $this->getKey($keyId);
@@ -97,7 +106,7 @@ class SymmetricKeyEncryption
 	private function getKey(string $keyId): EncryptionKey
 	{
 		if (isset($this->keys[$this->keyGroup][$keyId])) {
-			return new EncryptionKey(new HiddenString(Hex::decode($this->keys[$this->keyGroup][$keyId])));
+			return new EncryptionKey($this->keys[$this->keyGroup][$keyId]);
 		} else {
 			throw new UnknownEncryptionKeyIdException($keyId);
 		}
