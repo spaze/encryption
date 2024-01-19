@@ -126,10 +126,10 @@ class SymmetricKeyEncryptionTest extends TestCase
 	{
 		Assert::exception(function (): void {
 			new SymmetricKeyEncryption(['foo' => 'keyMaterial'], self::ACTIVE_KEY, self::KEY_PREFIX);
-		}, InvalidKeyPrefixException::class, 'Key has no prefix');
+		}, InvalidKeyPrefixException::class, "Key 'foo' has no prefix");
 		Assert::exception(function (): void {
 			new SymmetricKeyEncryption(['foo' => self::KEY_PREFIX . 'Invalid_keyMaterial'], self::ACTIVE_KEY, self::KEY_PREFIX);
-		}, InvalidKeyPrefixException::class, "Key prefix is 'prefixInvalid' but it should be 'prefix'");
+		}, InvalidKeyPrefixException::class, "Key 'foo' prefix is 'prefixInvalid' but it should be 'prefix'");
 	}
 
 }
