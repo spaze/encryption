@@ -17,8 +17,6 @@ require __DIR__ . '/bootstrap.php';
 class SymmetricKeyEncryptionTest extends TestCase
 {
 
-	private const KEY_GROUP = 'token';
-
 	private const PLAINTEXT = 'foobar';
 
 	private const INACTIVE_KEY = 'dev1';
@@ -34,12 +32,10 @@ class SymmetricKeyEncryptionTest extends TestCase
 	protected function setUp(): void
 	{
 		$this->keys = [
-			self::KEY_GROUP => [
-				self::INACTIVE_KEY => bin2hex(random_bytes(32)),
-				self::ACTIVE_KEY => bin2hex(random_bytes(32)),
-			],
+			self::INACTIVE_KEY => bin2hex(random_bytes(32)),
+			self::ACTIVE_KEY => bin2hex(random_bytes(32)),
 		];
-		$this->encryption = new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => self::ACTIVE_KEY]);
+		$this->encryption = new SymmetricKeyEncryption($this->keys, self::ACTIVE_KEY);
 	}
 
 
@@ -51,14 +47,14 @@ class SymmetricKeyEncryptionTest extends TestCase
 
 	public function testEncryptInactiveKeyDecrypt(): void
 	{
-		$inactiveKeyEncryption = new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => self::INACTIVE_KEY]);
+		$inactiveKeyEncryption = new SymmetricKeyEncryption($this->keys, self::INACTIVE_KEY);
 		Assert::same(self::PLAINTEXT, $this->encryption->decrypt($inactiveKeyEncryption->encrypt(self::PLAINTEXT)));
 	}
 
 
 	public function testNeedsReEncrypt(): void
 	{
-		$inactiveKeyEncryption = new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => self::INACTIVE_KEY]);
+		$inactiveKeyEncryption = new SymmetricKeyEncryption($this->keys, self::INACTIVE_KEY);
 		Assert::false($inactiveKeyEncryption->needsReEncrypt($inactiveKeyEncryption->encrypt(self::PLAINTEXT)));
 		Assert::true($this->encryption->needsReEncrypt($inactiveKeyEncryption->encrypt(self::PLAINTEXT)));
 		Assert::true($inactiveKeyEncryption->needsReEncrypt($this->encryption->encrypt(self::PLAINTEXT)));
@@ -69,7 +65,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 	{
 		$e = Assert::exception(
 			function () {
-				(new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => 'foo']))->encrypt(self::PLAINTEXT);
+				(new SymmetricKeyEncryption($this->keys, 'foo'))->encrypt(self::PLAINTEXT);
 			},
 			UnknownEncryptionKeyIdException::class,
 			"Unknown encryption key id: 'foo'",
@@ -83,7 +79,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 	{
 		$e = Assert::exception(
 			function () use ($invalidData) {
-				(new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => self::ACTIVE_KEY]))->decrypt($invalidData);
+				(new SymmetricKeyEncryption($this->keys, self::ACTIVE_KEY))->decrypt($invalidData);
 			},
 			InvalidNumberOfComponentsException::class,
 			"Data format must be '\$keyId\$ciphertext'",
@@ -106,7 +102,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 	{
 		$e = Assert::exception(
 			function () {
-				(new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => 'foo']))->encrypt(self::PLAINTEXT);
+				(new SymmetricKeyEncryption($this->keys, 'foo'))->encrypt(self::PLAINTEXT);
 			},
 			UnknownEncryptionKeyIdException::class,
 		);
@@ -117,9 +113,9 @@ class SymmetricKeyEncryptionTest extends TestCase
 
 	public function testHiddenStringKeys(): void
 	{
-		$object = print_r(new SymmetricKeyEncryption(self::KEY_GROUP, $this->keys, [self::KEY_GROUP => self::ACTIVE_KEY]), true);
-		Assert::notContains($this->keys[self::KEY_GROUP][self::ACTIVE_KEY], $object);
-		Assert::notContains($this->keys[self::KEY_GROUP][self::INACTIVE_KEY], $object);
+		$object = print_r(new SymmetricKeyEncryption($this->keys, self::ACTIVE_KEY), true);
+		Assert::notContains($this->keys[self::ACTIVE_KEY], $object);
+		Assert::notContains($this->keys[self::INACTIVE_KEY], $object);
 	}
 
 }
