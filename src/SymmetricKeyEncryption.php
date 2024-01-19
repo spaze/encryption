@@ -15,6 +15,7 @@ use ParagonIE\Halite\Symmetric\EncryptionKey;
 use ParagonIE\HiddenString\HiddenString;
 use SensitiveParameter;
 use SodiumException;
+use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
 use TypeError;
@@ -26,19 +27,29 @@ class SymmetricKeyEncryption
 
 	private const KEY_CIPHERTEXT_SEPARATOR = '$';
 
+	private const KEY_PREFIX_SEPARATOR = '_';
+
 	/** @var array<string, HiddenString> */
 	private array $keys = [];
 
 
 	/**
 	 * @param array<string, string> $keys key id => key
+	 * @throws InvalidKeyPrefixException
 	 */
 	public function __construct(
 		#[SensitiveParameter] array $keys,
 		private string $activeKeyId,
+		private string $keyPrefix,
 	) {
+		$keyPrefix = $this->keyPrefix . self::KEY_PREFIX_SEPARATOR;
 		foreach ($keys as $id => $key) {
-			$this->keys[$id] = new HiddenString(Hex::decode($key));
+			if (str_starts_with($key, $keyPrefix)) {
+				$this->keys[$id] = new HiddenString(Hex::decode(str_replace($keyPrefix, '', $key)));
+			} else {
+				$pos = strpos($key, self::KEY_PREFIX_SEPARATOR);
+				throw new InvalidKeyPrefixException($this->keyPrefix, $pos !== false ? substr($key, 0, $pos) : null);
+			}
 		}
 	}
 
