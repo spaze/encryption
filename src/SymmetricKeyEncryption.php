@@ -26,23 +26,19 @@ class SymmetricKeyEncryption
 
 	private const KEY_CIPHERTEXT_SEPARATOR = '$';
 
-	/** @var array<string, array<string, HiddenString>> */
+	/** @var array<string, HiddenString> */
 	private array $keys = [];
 
 
 	/**
-	 * @param array<string, array<string, string>> $keys key group => key id => key
-	 * @param array<string, string> $activeKeyIds key group => key id
+	 * @param array<string, string> $keys key id => key
 	 */
 	public function __construct(
-		private string $keyGroup,
 		#[SensitiveParameter] array $keys,
-		private array $activeKeyIds,
+		private string $activeKeyId,
 	) {
-		foreach ($keys as $name => $group) {
-			foreach ($group as $id => $key) {
-				$this->keys[$name][$id] = new HiddenString(Hex::decode($key));
-			}
+		foreach ($keys as $id => $key) {
+			$this->keys[$id] = new HiddenString(Hex::decode($key));
 		}
 	}
 
@@ -59,10 +55,9 @@ class SymmetricKeyEncryption
 	 */
 	public function encrypt(#[SensitiveParameter] string $data): string
 	{
-		$keyId = $this->getActiveKeyId();
-		$key = $this->getKey($keyId);
+		$key = $this->getKey($this->activeKeyId);
 		$cipherText = Crypto::encrypt(new HiddenString($data), $key);
-		return $this->formatKeyCipherText($keyId, $cipherText);
+		return $this->formatKeyCipherText($this->activeKeyId, $cipherText);
 	}
 
 
@@ -94,7 +89,7 @@ class SymmetricKeyEncryption
 	public function needsReEncrypt(string $data): bool
 	{
 		[$keyId] = $this->parseKeyCipherText($data);
-		return $keyId !== $this->getActiveKeyId();
+		return $keyId !== $this->activeKeyId;
 	}
 
 
@@ -105,17 +100,11 @@ class SymmetricKeyEncryption
 	 */
 	private function getKey(string $keyId): EncryptionKey
 	{
-		if (isset($this->keys[$this->keyGroup][$keyId])) {
-			return new EncryptionKey($this->keys[$this->keyGroup][$keyId]);
+		if (isset($this->keys[$keyId])) {
+			return new EncryptionKey($this->keys[$keyId]);
 		} else {
 			throw new UnknownEncryptionKeyIdException($keyId);
 		}
-	}
-
-
-	private function getActiveKeyId(): string
-	{
-		return $this->activeKeyIds[$this->keyGroup];
 	}
 
 
