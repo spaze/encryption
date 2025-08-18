@@ -5,7 +5,9 @@
 	<arg name="colors"/>
 	<arg value="s"/>
 	<arg value="p"/>
-	<rule ref="vendor/spaze/coding-standard/src/ruleset.xml"/>
+	<rule ref="vendor/spaze/coding-standard/src/ruleset.xml">
+		<exclude name="SlevomatCodingStandard.TypeHints.ClassConstantTypeHint" />
+	</rule>
 	<rule ref="PSR1.Files.SideEffects.FoundWithSymbols">
 		<exclude-pattern>tests/</exclude-pattern>
 	</rule>
