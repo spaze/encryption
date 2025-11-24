@@ -26,7 +26,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 
 	private const KEY_PREFIX = 'prefix';
 
-	/** @var array<string, array<string, string>> */
+	/** @var array<string, string> */
 	private array $keys;
 
 	private SymmetricKeyEncryption $encryption;
@@ -91,6 +91,9 @@ class SymmetricKeyEncryptionTest extends TestCase
 	}
 
 
+	/**
+	 * @return list<array{0:string}>
+	 */
 	public function getInvalidEncryptedData(): array
 	{
 		return [
@@ -109,6 +112,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 			},
 			UnknownEncryptionKeyIdException::class,
 		);
+		assert($e instanceof UnknownEncryptionKeyIdException);
 		Assert::notContains(self::PLAINTEXT, $e->getTraceAsString());
 		Assert::contains('SensitiveParameterValue', $e->getTraceAsString());
 	}
