@@ -38,8 +38,8 @@ The configuration is an example one, you don't need to use groups, or even the c
 Then define services for each key group (feel free to commit this):
 ```
 services:
-    emailEncryption: \Spaze\Encryption\SymmetricKeyEncryption(%encryption.keys.passwordHash%, %encryption.activeKeyIds.passwordHash%, %encryption.prefixes.passwordHash%)
-    passwordHashEncryption: \Spaze\Encryption\SymmetricKeyEncryption(%encryption.keys.email%, %encryption.activeKeyIds.email%, %encryption.prefixes.email%)
+    emailEncryption: \Spaze\Encryption\SymmetricKeyEncryption(%encryption.keys.email%, %encryption.activeKeyIds.email%, %encryption.prefixes.email%)
+    passwordHashEncryption: \Spaze\Encryption\SymmetricKeyEncryption(%encryption.keys.passwordHash%, %encryption.activeKeyIds.passwordHash%, %encryption.prefixes.passwordHash%)
 ```
 
 Use the services in this class which needs to encrypt and decrypt email addresses for whatever reason:
