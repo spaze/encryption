@@ -12,18 +12,19 @@ Although it can be used anywhere, this library doesn't depend on anything from t
 
 Add this (or similar) to your `config.local.neon` parameters section (DO NOT COMMIT THIS TO REPOSITORY):
 ```
-encryption:
-    keys:
-        passwordHash:
-            prod1: "phek_abadcafec15c..." # prefix _ [0-9A-F]{64}
-        email:
-            prod1: "eek_cafebabe25da..." # prefix _ [0-9A-F]{64}
-    activeKeyIds:
-        passwordHash: prod1
-        email: prod1
-    prefixes:
-        passwordHash: phek # password hash encryption key
-        email: eek # email encryption key
+parameters:
+    encryption:
+        keys:
+            passwordHash:
+                prod1: "phek_abadcafec15c..." # prefix _ [0-9A-F]{64}
+            email:
+                prod1: "eek_cafebabe25da..." # prefix _ [0-9A-F]{64}
+        activeKeyIds:
+            passwordHash: prod1
+            email: prod1
+        prefixes:
+            passwordHash: phek # password hash encryption key
+            email: eek # email encryption key
 ```
 YOU HAVE TO GENERATE YOUR OWN KEYS. You can use for example
 ```php
