@@ -49,9 +49,24 @@ Spaze\Encryption\SymmetricKeyEncryption::encrypt(string $data): string
 ```
 The output will be formatted as `$<keyId>$<base64 ciphertext>`, for example `$key2$MUI...`, where `<keyId>` (`key2`) is the active key id set in the constructor. Store the whole value, don't parse it.
 
+This method does not use any context binding (Additional Authenticated Data). Use `encryptWithAd()` if you want to bind the ciphertext to a specific context.
+
 Example:
 ```php
 $encrypted = $encryption->encrypt($addressData);
+```
+
+### Encrypt with Additional Authenticated Data (AAD)
+```php
+Spaze\Encryption\SymmetricKeyEncryption::encryptWithAd(string $data, string $additionalData): string
+```
+Additional Authenticated Data (AAD) cryptographically binds a ciphertext to a context (like a row id, column name, or tenant id). The additional data (the context) is **not encrypted**, and thus it must not be a secret. This prevents attackers or buggy scripts from copying a valid ciphertext from one place and pasting it into another.
+
+The `$additionalData` must be non-empty and exactly the same on both encrypt and decrypt, otherwise decryption will fail.
+
+Example:
+```php
+$encrypted = $encryption->encryptWithAd($addressData, $tenantId);
 ```
 
 ### Decrypt
@@ -63,6 +78,17 @@ Use it to decrypt data previously encrypted with `encrypt()`.
 Example:
 ```php
 $decrypted = $encryption->decrypt($encrypted);
+```
+
+### Decrypt with Additional Authenticated Data (AAD)
+```php
+Spaze\Encryption\SymmetricKeyEncryption::decryptWithAd(string $data, string $additionalData): string
+```
+Use it to decrypt data previously encrypted with `encryptWithAd()`.
+
+Example:
+```php
+$decrypted = $encryption->decryptWithAd($encrypted, $tenantId);
 ```
 
 ### Key rotation
