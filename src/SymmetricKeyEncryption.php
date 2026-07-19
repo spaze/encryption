@@ -15,6 +15,8 @@ use ParagonIE\Halite\Symmetric\EncryptionKey;
 use ParagonIE\HiddenString\HiddenString;
 use SensitiveParameter;
 use SodiumException;
+use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
+use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
@@ -74,6 +76,28 @@ class SymmetricKeyEncryption
 
 	/**
 	 * @throws CannotPerformOperation
+	 * @throws EncryptWithAdNeedsAdditionalDataException
+	 * @throws InvalidDigestLength
+	 * @throws InvalidKey
+	 * @throws InvalidMessage
+	 * @throws InvalidType
+	 * @throws SodiumException
+	 * @throws TypeError
+	 * @throws UnknownEncryptionKeyIdException
+	 */
+	public function encryptWithAd(#[SensitiveParameter] string $data, string $additionalData): string
+	{
+		if ($additionalData === '') {
+			throw new EncryptWithAdNeedsAdditionalDataException();
+		}
+		$key = $this->getKey($this->activeKeyId);
+		$cipherText = Crypto::encryptWithAD(new HiddenString($data), $key, $additionalData);
+		return $this->formatKeyCipherText($this->activeKeyId, $cipherText);
+	}
+
+
+	/**
+	 * @throws CannotPerformOperation
 	 * @throws InvalidDigestLength
 	 * @throws InvalidKey
 	 * @throws InvalidMessage
@@ -89,6 +113,30 @@ class SymmetricKeyEncryption
 		[$keyId, $cipherText] = $this->parseKeyCipherText($data);
 		$key = $this->getKey($keyId);
 		return Crypto::decrypt($cipherText, $key)->getString();
+	}
+
+
+	/**
+	 * @throws CannotPerformOperation
+	 * @throws DecryptWithAdNeedsAdditionalDataException
+	 * @throws InvalidDigestLength
+	 * @throws InvalidKey
+	 * @throws InvalidMessage
+	 * @throws InvalidSignature
+	 * @throws InvalidType
+	 * @throws SodiumException
+	 * @throws TypeError
+	 * @throws UnknownEncryptionKeyIdException
+	 * @throws InvalidNumberOfComponentsException
+	 */
+	public function decryptWithAd(string $data, string $additionalData): string
+	{
+		if ($additionalData === '') {
+			throw new DecryptWithAdNeedsAdditionalDataException();
+		}
+		[$keyId, $cipherText] = $this->parseKeyCipherText($data);
+		$key = $this->getKey($keyId);
+		return Crypto::decryptWithAD($cipherText, $key, $additionalData)->getString();
 	}
 
 

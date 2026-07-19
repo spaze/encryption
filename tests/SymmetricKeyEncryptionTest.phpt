@@ -6,6 +6,9 @@ namespace Spaze\Encryption;
 
 use OutOfBoundsException;
 use OutOfRangeException;
+use ParagonIE\Halite\Alerts\InvalidMessage;
+use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
+use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
@@ -48,6 +51,49 @@ class SymmetricKeyEncryptionTest extends TestCase
 	}
 
 
+	public function testEncryptDecryptWithAd(): void
+	{
+		$ad = 'context';
+		Assert::same(self::PLAINTEXT, $this->encryption->decryptWithAd($this->encryption->encryptWithAd(self::PLAINTEXT, $ad), $ad));
+	}
+
+
+	public function testDecryptWithWrongAdFails(): void
+	{
+		$encrypted = $this->encryption->encryptWithAd(self::PLAINTEXT, 'context1');
+		Assert::exception(function () use ($encrypted) {
+			$this->encryption->decryptWithAd($encrypted, 'context2');
+		}, InvalidMessage::class);
+	}
+
+
+	public function testPairingFails(): void
+	{
+		$encryptedWithAd = $this->encryption->encryptWithAd(self::PLAINTEXT, 'context');
+		Assert::exception(function () use ($encryptedWithAd) {
+			$this->encryption->decrypt($encryptedWithAd);
+		}, InvalidMessage::class);
+
+		$encrypted = $this->encryption->encrypt(self::PLAINTEXT);
+		Assert::exception(function () use ($encrypted) {
+			$this->encryption->decryptWithAd($encrypted, 'context');
+		}, InvalidMessage::class);
+	}
+
+
+	public function testEmptyAdGuard(): void
+	{
+		Assert::exception(function () {
+			$this->encryption->encryptWithAd(self::PLAINTEXT, '');
+		}, EncryptWithAdNeedsAdditionalDataException::class, 'additionalData must not be empty; use encrypt() for values that are not context-bound');
+
+		$encryptedWithAd = $this->encryption->encryptWithAd(self::PLAINTEXT, 'context');
+		Assert::exception(function () use ($encryptedWithAd) {
+			$this->encryption->decryptWithAd($encryptedWithAd, '');
+		}, DecryptWithAdNeedsAdditionalDataException::class, 'additionalData must not be empty; use decrypt() for values that are not context-bound');
+	}
+
+
 	public function testEncryptInactiveKeyDecrypt(): void
 	{
 		$inactiveKeyEncryption = new SymmetricKeyEncryption($this->keys, self::INACTIVE_KEY, self::KEY_PREFIX);
@@ -61,6 +107,10 @@ class SymmetricKeyEncryptionTest extends TestCase
 		Assert::false($inactiveKeyEncryption->needsReEncrypt($inactiveKeyEncryption->encrypt(self::PLAINTEXT)));
 		Assert::true($this->encryption->needsReEncrypt($inactiveKeyEncryption->encrypt(self::PLAINTEXT)));
 		Assert::true($inactiveKeyEncryption->needsReEncrypt($this->encryption->encrypt(self::PLAINTEXT)));
+
+		$encryptedWithAd = $inactiveKeyEncryption->encryptWithAd(self::PLAINTEXT, 'context');
+		Assert::false($inactiveKeyEncryption->needsReEncrypt($encryptedWithAd));
+		Assert::true($this->encryption->needsReEncrypt($encryptedWithAd));
 	}
 
 
