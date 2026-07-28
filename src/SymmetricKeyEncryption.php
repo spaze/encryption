@@ -14,6 +14,7 @@ use ParagonIE\Halite\Symmetric\EncryptionKey;
 use ParagonIE\HiddenString\HiddenString;
 use SensitiveParameter;
 use SodiumException;
+use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
 use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
@@ -38,6 +39,7 @@ class SymmetricKeyEncryption
 
 	/**
 	 * @param array<string, string> $keys key id => key
+	 * @throws ActiveKeyIdNotFoundException
 	 * @throws InvalidKeyEncodingException
 	 * @throws InvalidKeyLengthException
 	 * @throws InvalidKeyPrefixException
@@ -63,6 +65,9 @@ class SymmetricKeyEncryption
 			}
 			$this->keys[$id] = new HiddenString($decodedKey);
 		}
+		if (!isset($this->keys[$this->activeKeyId])) {
+			throw new ActiveKeyIdNotFoundException($this->activeKeyId);
+		}
 	}
 
 
@@ -74,7 +79,6 @@ class SymmetricKeyEncryption
 	 * @throws InvalidType
 	 * @throws SodiumException
 	 * @throws TypeError
-	 * @throws UnknownEncryptionKeyIdException
 	 */
 	public function encrypt(#[SensitiveParameter] string $data): string
 	{
@@ -93,7 +97,6 @@ class SymmetricKeyEncryption
 	 * @throws InvalidType
 	 * @throws SodiumException
 	 * @throws TypeError
-	 * @throws UnknownEncryptionKeyIdException
 	 */
 	public function encryptWithAd(#[SensitiveParameter] string $data, string $additionalData): string
 	{

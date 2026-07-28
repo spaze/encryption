@@ -27,6 +27,7 @@ The constructor validates each key: the prefix must match, the key material must
 
 #### `string $activeKeyId`
 A `key id` of a key that should be used for encryption. Decryption will always use a key that's specified in the encryption output.
+The id must exist as a key in the `$keys` array, otherwise the constructor throws `ActiveKeyIdNotFoundException` — a typo in the active key id fails at construction time, not on the first `encrypt()` call after a deploy.
 
 #### `string $keyPrefix`
 A prefix that the encryption key uses for better identification, useful when you've found some leaked credentials for example.

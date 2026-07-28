@@ -7,7 +7,10 @@ namespace Spaze\Encryption;
 use OutOfBoundsException;
 use OutOfRangeException;
 use ParagonIE\Halite\Alerts\InvalidMessage;
+use ReflectionMethod;
+use SensitiveParameter;
 use SodiumException;
+use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
 use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
@@ -119,16 +122,35 @@ class SymmetricKeyEncryptionTest extends TestCase
 	}
 
 
-	public function testEncryptUnknownKey(): void
+	public function testConstructorActiveKeyIdNotFound(): void
 	{
 		$e = Assert::exception(
-			function () {
-				(new SymmetricKeyEncryption($this->keys, 'foo', self::KEY_PREFIX))->encrypt(self::PLAINTEXT);
+			function (): void {
+				new SymmetricKeyEncryption($this->keys, 'foo', self::KEY_PREFIX);
 			},
-			UnknownEncryptionKeyIdException::class,
+			ActiveKeyIdNotFoundException::class,
 			"Unknown encryption key id: 'foo'",
 		);
+		Assert::type(UnknownEncryptionKeyIdException::class, $e);
 		Assert::type(OutOfRangeException::class, $e);
+		Assert::exception(
+			function (): void {
+				new SymmetricKeyEncryption([], 'foo', self::KEY_PREFIX);
+			},
+			ActiveKeyIdNotFoundException::class,
+		);
+	}
+
+
+	public function testDecryptUnknownKeyId(): void
+	{
+		Assert::exception(
+			function (): void {
+				$this->encryption->decrypt('$unknown$x');
+			},
+			UnknownEncryptionKeyIdException::class,
+			"Unknown encryption key id: 'unknown'",
+		);
 	}
 
 
@@ -159,17 +181,33 @@ class SymmetricKeyEncryptionTest extends TestCase
 	}
 
 
-	public function testEncryptSensitiveParameter(): void
+	public function testEncryptWithAdSensitiveParameter(): void
 	{
+		// The empty additionalData guard is the only throw site reachable with a valid construction,
+		// so this is where the SensitiveParameter masking of the plaintext argument can be observed in a trace
 		$e = Assert::exception(
-			function () {
-				(new SymmetricKeyEncryption($this->keys, 'foo', self::KEY_PREFIX))->encrypt(self::PLAINTEXT);
+			function (): void {
+				$this->encryption->encryptWithAd(self::PLAINTEXT, '');
 			},
-			UnknownEncryptionKeyIdException::class,
+			EncryptWithAdNeedsAdditionalDataException::class,
 		);
-		assert($e instanceof UnknownEncryptionKeyIdException);
+		assert($e instanceof EncryptWithAdNeedsAdditionalDataException);
 		Assert::notContains(self::PLAINTEXT, $e->getTraceAsString());
 		Assert::contains('SensitiveParameterValue', $e->getTraceAsString());
+	}
+
+
+	public function testSensitiveParameterAttributes(): void
+	{
+		// encrypt() cannot be made to throw with a valid construction anymore, so pin its attribute directly
+		$parameters = [
+			(new ReflectionMethod(SymmetricKeyEncryption::class, '__construct'))->getParameters()[0],
+			(new ReflectionMethod(SymmetricKeyEncryption::class, 'encrypt'))->getParameters()[0],
+			(new ReflectionMethod(SymmetricKeyEncryption::class, 'encryptWithAd'))->getParameters()[0],
+		];
+		foreach ($parameters as $parameter) {
+			Assert::count(1, $parameter->getAttributes(SensitiveParameter::class));
+		}
 	}
 
 
