@@ -47,7 +47,7 @@ class SymmetricKeyEncryption
 		$keyPrefix = $this->keyPrefix . self::KEY_PREFIX_SEPARATOR;
 		foreach ($keys as $id => $key) {
 			if (str_starts_with($key, $keyPrefix)) {
-				$this->keys[$id] = new HiddenString(Hex::decode(str_replace($keyPrefix, '', $key)));
+				$this->keys[$id] = new HiddenString(Hex::decode(substr($key, strlen($keyPrefix))));
 			} else {
 				$pos = strpos($key, self::KEY_PREFIX_SEPARATOR);
 				throw new InvalidKeyPrefixException($id, $this->keyPrefix, $pos !== false ? substr($key, 0, $pos) : null);
