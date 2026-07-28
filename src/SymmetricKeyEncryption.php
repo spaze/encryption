@@ -17,6 +17,7 @@ use SodiumException;
 use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
 use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
+use Spaze\Encryption\Exceptions\InvalidCipherTextFormatException;
 use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
 use Spaze\Encryption\Exceptions\InvalidKeyIdException;
 use Spaze\Encryption\Exceptions\InvalidKeyLengthException;
@@ -124,6 +125,7 @@ class SymmetricKeyEncryption
 	 * @throws SodiumException
 	 * @throws TypeError
 	 * @throws UnknownEncryptionKeyIdException
+	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException
 	 */
 	public function decrypt(string $data): string
@@ -145,6 +147,7 @@ class SymmetricKeyEncryption
 	 * @throws SodiumException
 	 * @throws TypeError
 	 * @throws UnknownEncryptionKeyIdException
+	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException
 	 */
 	public function decryptWithAd(string $data, string $additionalData): string
@@ -161,6 +164,7 @@ class SymmetricKeyEncryption
 	/**
 	 * Checks if the given data are encrypted using the active key.
 	 *
+	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException
 	 */
 	public function needsReEncrypt(string $data): bool
@@ -186,7 +190,8 @@ class SymmetricKeyEncryption
 
 
 	/**
-	 * @return array{0:string, 1:string}
+	 * @return array{0:non-empty-string, 1:non-empty-string}
+	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException
 	 */
 	private function parseKeyCipherText(string $data): array
@@ -194,6 +199,9 @@ class SymmetricKeyEncryption
 		$data = explode(self::KEY_CIPHERTEXT_SEPARATOR, $data);
 		if (count($data) !== 3) {
 			throw new InvalidNumberOfComponentsException();
+		}
+		if ($data[0] !== '' || $data[1] === '' || $data[2] === '') {
+			throw new InvalidCipherTextFormatException();
 		}
 		return [$data[1], $data[2]];
 	}
