@@ -162,7 +162,8 @@ class SymmetricKeyEncryption
 
 
 	/**
-	 * Checks if the given data are encrypted using the active key.
+	 * Checks if the given data are encrypted with an inactive key
+	 * and thus should be re-encrypted with the currently active one.
 	 *
 	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException

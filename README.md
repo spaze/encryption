@@ -50,6 +50,8 @@ Spaze\Encryption\SymmetricKeyEncryption::encrypt(string $data): string
 ```
 The output will be formatted as `$<keyId>$<base64 ciphertext>`, for example `$key2$MUI...`, where `<keyId>` (`key2`) is the active key id set in the constructor. Store the whole value, don't parse it.
 
+The key id in the output is a hint that selects the decryption key. It is the only part of the output not protected against tampering, even by `encryptWithAd()`: changing the encrypted part makes decryption fail, while changing the key id just makes decryption try a different key, and fail because the key is different. Never configure the same key under two different ids.
+
 This method does not use any context binding (Additional Authenticated Data). Use `encryptWithAd()` if you want to bind the ciphertext to a specific context.
 
 Example:
@@ -100,6 +102,8 @@ Once done you can delete the old key.
 
 You can use `needsReEncrypt($ciphertext): bool` to see if the data is encrypted with an inactive key and thus should be re-encrypted with the currently active one.
 
+When rotating, always generate a fresh key for the new key id. The key id in the encrypted output is not protected against tampering (see [Encrypt](#encrypt)), so two different key ids must never point to the same key.
+
 ## Usage in Nette framework
 
 Although it can be used anywhere, this library doesn't depend on anything from the Nette Framework.
@@ -122,6 +126,10 @@ parameters:
             passwordHash: phek # password hash encryption key
             email: eek # email encryption key
 ```
+Note that Nette compiles parameter values into the generated DI container file in the temp directory, so the keys will also be present in plaintext in the compiled container in `temp/cache`.
+That directory tends to leak into places nobody thinks about: backups, deploy artifacts, rsync copies, debug tarballs sent to hosting support.
+Either treat the temp directory accordingly and exclude it from backups and artifacts, or use [dynamic parameters](https://doc.nette.org/en/application/bootstrapping#toc-dynamic-parameters) or environment variables so the key values are not baked into the compiled container.
+
 YOU HAVE TO GENERATE YOUR OWN KEYS. You can use for example
 ```php
 bin2hex(random_bytes(32))
