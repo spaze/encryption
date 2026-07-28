@@ -3,7 +3,6 @@ declare(strict_types = 1);
 
 namespace Spaze\Encryption;
 
-use ParagonIE\ConstantTime\Hex;
 use ParagonIE\Halite\Alerts\CannotPerformOperation;
 use ParagonIE\Halite\Alerts\InvalidDigestLength;
 use ParagonIE\Halite\Alerts\InvalidKey;
@@ -17,6 +16,8 @@ use SensitiveParameter;
 use SodiumException;
 use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
+use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
+use Spaze\Encryption\Exceptions\InvalidKeyLengthException;
 use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
@@ -37,6 +38,8 @@ class SymmetricKeyEncryption
 
 	/**
 	 * @param array<string, string> $keys key id => key
+	 * @throws InvalidKeyEncodingException
+	 * @throws InvalidKeyLengthException
 	 * @throws InvalidKeyPrefixException
 	 */
 	public function __construct(
@@ -46,12 +49,19 @@ class SymmetricKeyEncryption
 	) {
 		$keyPrefix = $this->keyPrefix . self::KEY_PREFIX_SEPARATOR;
 		foreach ($keys as $id => $key) {
-			if (str_starts_with($key, $keyPrefix)) {
-				$this->keys[$id] = new HiddenString(Hex::decode(substr($key, strlen($keyPrefix))));
-			} else {
+			if (!str_starts_with($key, $keyPrefix)) {
 				$pos = strpos($key, self::KEY_PREFIX_SEPARATOR);
 				throw new InvalidKeyPrefixException($id, $this->keyPrefix, $pos !== false ? substr($key, 0, $pos) : null);
 			}
+			try {
+				$decodedKey = sodium_hex2bin(substr($key, strlen($keyPrefix)));
+			} catch (SodiumException $e) {
+				throw new InvalidKeyEncodingException($id, $e);
+			}
+			if (strlen($decodedKey) !== SODIUM_CRYPTO_STREAM_KEYBYTES) {
+				throw new InvalidKeyLengthException($id, strlen($decodedKey));
+			}
+			$this->keys[$id] = new HiddenString($decodedKey);
 		}
 	}
 

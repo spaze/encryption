@@ -23,7 +23,7 @@ Spaze\Encryption\SymmetricKeyEncryption::__construct(array $keys, string $active
 #### `array $keys`
 An array of encryption keys, a _key id_ (will be part of the encrypted string) as the array key, the prefixed _key_ (`prefix` + `_` + `[0-9A-F]{64}`) as the value.
 Generate your own encryption keys with for example `bin2hex(random_bytes(32))`.
-The library does not validate key format, it assumes you provide correct prefix + 64 hex characters.
+The constructor validates each key: the prefix must match, the key material must be valid hex, and it must decode to exactly 32 bytes (64 hexadecimal characters). A misconfigured key throws an exception at construction time, not on first use.
 
 #### `string $activeKeyId`
 A `key id` of a key that should be used for encryption. Decryption will always use a key that's specified in the encryption output.
