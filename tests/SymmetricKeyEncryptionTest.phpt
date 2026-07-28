@@ -13,6 +13,7 @@ use SodiumException;
 use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
 use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
+use Spaze\Encryption\Exceptions\InvalidCipherTextFormatException;
 use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
 use Spaze\Encryption\Exceptions\InvalidKeyIdException;
 use Spaze\Encryption\Exceptions\InvalidKeyLengthException;
@@ -156,16 +157,22 @@ class SymmetricKeyEncryptionTest extends TestCase
 
 
 	/** @dataProvider getInvalidEncryptedData */
-	public function testDecryptInvalidCipherTextComponents(string $invalidData): void
+	public function testDecryptInvalidCipherTextFormat(string $invalidData): void
 	{
 		$e = Assert::exception(
 			function () use ($invalidData) {
 				(new SymmetricKeyEncryption($this->keys, self::ACTIVE_KEY, self::KEY_PREFIX))->decrypt($invalidData);
 			},
-			InvalidNumberOfComponentsException::class,
+			InvalidCipherTextFormatException::class,
 			"Data format must be '\$keyId\$ciphertext'",
 		);
 		Assert::type(OutOfBoundsException::class, $e);
+		Assert::exception(
+			function () use ($invalidData): void {
+				$this->encryption->decryptWithAd($invalidData, 'context');
+			},
+			InvalidCipherTextFormatException::class,
+		);
 	}
 
 
@@ -176,9 +183,41 @@ class SymmetricKeyEncryptionTest extends TestCase
 	{
 		return [
 			['nothing'],
+			[''],
 			['$keyId'],
 			['$key$ciphertext$whatsDiz'],
+			['garbage$keyId$ciphertext'],
+			['$keyId$'],
+			['$$ciphertext'],
+			['$$'],
 		];
+	}
+
+
+	public function testDecryptInvalidNumberOfComponents(): void
+	{
+		$e = Assert::exception(
+			function (): void {
+				$this->encryption->decrypt('nothing');
+			},
+			InvalidNumberOfComponentsException::class,
+			"Data format must be '\$keyId\$ciphertext'",
+		);
+		Assert::type(InvalidCipherTextFormatException::class, $e);
+		Assert::type(OutOfBoundsException::class, $e);
+	}
+
+
+	public function testNeedsReEncryptInvalidCipherTextFormat(): void
+	{
+		$e = Assert::exception(
+			function (): void {
+				$this->encryption->needsReEncrypt('foo$bar$baz');
+			},
+			InvalidCipherTextFormatException::class,
+		);
+		// The format guards throw the base class, only the component count check throws the subclass
+		Assert::false($e instanceof InvalidNumberOfComponentsException);
 	}
 
 
