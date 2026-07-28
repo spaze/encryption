@@ -122,6 +122,10 @@ parameters:
             passwordHash: phek # password hash encryption key
             email: eek # email encryption key
 ```
+Note that Nette compiles parameter values into the generated DI container file in the temp directory, so the keys will also be present in plaintext in the compiled container in `temp/cache`.
+That directory tends to leak into places nobody thinks about: backups, deploy artifacts, rsync copies, debug tarballs sent to hosting support.
+Either treat the temp directory accordingly and exclude it from backups and artifacts, or use [dynamic parameters](https://doc.nette.org/en/application/bootstrapping#toc-dynamic-parameters) or environment variables so the key values are not baked into the compiled container.
+
 YOU HAVE TO GENERATE YOUR OWN KEYS. You can use for example
 ```php
 bin2hex(random_bytes(32))
