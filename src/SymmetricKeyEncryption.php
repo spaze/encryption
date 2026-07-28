@@ -18,6 +18,7 @@ use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
 use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
+use Spaze\Encryption\Exceptions\InvalidKeyIdException;
 use Spaze\Encryption\Exceptions\InvalidKeyLengthException;
 use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
@@ -41,6 +42,7 @@ class SymmetricKeyEncryption
 	 * @param array<string, string> $keys key id => key
 	 * @throws ActiveKeyIdNotFoundException
 	 * @throws InvalidKeyEncodingException
+	 * @throws InvalidKeyIdException
 	 * @throws InvalidKeyLengthException
 	 * @throws InvalidKeyPrefixException
 	 */
@@ -51,6 +53,9 @@ class SymmetricKeyEncryption
 	) {
 		$keyPrefix = $this->keyPrefix . self::KEY_PREFIX_SEPARATOR;
 		foreach ($keys as $id => $key) {
+			if ($id === '' || str_contains($id, self::KEY_CIPHERTEXT_SEPARATOR)) {
+				throw new InvalidKeyIdException($id, self::KEY_CIPHERTEXT_SEPARATOR);
+			}
 			if (!str_starts_with($key, $keyPrefix)) {
 				$pos = strpos($key, self::KEY_PREFIX_SEPARATOR);
 				throw new InvalidKeyPrefixException($id, $this->keyPrefix, $pos !== false ? substr($key, 0, $pos) : null);

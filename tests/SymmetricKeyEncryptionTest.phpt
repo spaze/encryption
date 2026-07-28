@@ -14,6 +14,7 @@ use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
 use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
+use Spaze\Encryption\Exceptions\InvalidKeyIdException;
 use Spaze\Encryption\Exceptions\InvalidKeyLengthException;
 use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
@@ -216,6 +217,27 @@ class SymmetricKeyEncryptionTest extends TestCase
 		$object = print_r(new SymmetricKeyEncryption($this->keys, self::ACTIVE_KEY, self::KEY_PREFIX), true);
 		Assert::notContains($this->keys[self::ACTIVE_KEY], $object);
 		Assert::notContains($this->keys[self::INACTIVE_KEY], $object);
+	}
+
+
+	public function testConstructorInvalidKeyId(): void
+	{
+		// An empty key id would produce '$$<ciphertext>' which the parser rejects
+		Assert::exception(
+			function (): void {
+				new SymmetricKeyEncryption(['' => self::KEY_PREFIX . '_' . bin2hex(random_bytes(32))], '', self::KEY_PREFIX);
+			},
+			InvalidKeyIdException::class,
+			'Key id must not be empty',
+		);
+		// A key id with the separator would encrypt fine but produce output that can never be decrypted
+		Assert::exception(
+			function (): void {
+				new SymmetricKeyEncryption(['key$1' => self::KEY_PREFIX . '_' . bin2hex(random_bytes(32))], 'key$1', self::KEY_PREFIX);
+			},
+			InvalidKeyIdException::class,
+			"Key id 'key\$1' must not contain '\$'",
+		);
 	}
 
 
