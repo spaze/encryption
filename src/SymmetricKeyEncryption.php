@@ -3,7 +3,6 @@ declare(strict_types = 1);
 
 namespace Spaze\Encryption;
 
-use ParagonIE\ConstantTime\Hex;
 use ParagonIE\Halite\Alerts\CannotPerformOperation;
 use ParagonIE\Halite\Alerts\InvalidDigestLength;
 use ParagonIE\Halite\Alerts\InvalidKey;
@@ -15,8 +14,12 @@ use ParagonIE\Halite\Symmetric\EncryptionKey;
 use ParagonIE\HiddenString\HiddenString;
 use SensitiveParameter;
 use SodiumException;
+use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
 use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
+use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
+use Spaze\Encryption\Exceptions\InvalidKeyIdException;
+use Spaze\Encryption\Exceptions\InvalidKeyLengthException;
 use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
@@ -37,6 +40,10 @@ class SymmetricKeyEncryption
 
 	/**
 	 * @param array<string, string> $keys key id => key
+	 * @throws ActiveKeyIdNotFoundException
+	 * @throws InvalidKeyEncodingException
+	 * @throws InvalidKeyIdException
+	 * @throws InvalidKeyLengthException
 	 * @throws InvalidKeyPrefixException
 	 */
 	public function __construct(
@@ -46,12 +53,25 @@ class SymmetricKeyEncryption
 	) {
 		$keyPrefix = $this->keyPrefix . self::KEY_PREFIX_SEPARATOR;
 		foreach ($keys as $id => $key) {
-			if (str_starts_with($key, $keyPrefix)) {
-				$this->keys[$id] = new HiddenString(Hex::decode(str_replace($keyPrefix, '', $key)));
-			} else {
+			if ($id === '' || str_contains($id, self::KEY_CIPHERTEXT_SEPARATOR)) {
+				throw new InvalidKeyIdException($id, self::KEY_CIPHERTEXT_SEPARATOR);
+			}
+			if (!str_starts_with($key, $keyPrefix)) {
 				$pos = strpos($key, self::KEY_PREFIX_SEPARATOR);
 				throw new InvalidKeyPrefixException($id, $this->keyPrefix, $pos !== false ? substr($key, 0, $pos) : null);
 			}
+			try {
+				$decodedKey = sodium_hex2bin(substr($key, strlen($keyPrefix)));
+			} catch (SodiumException $e) {
+				throw new InvalidKeyEncodingException($id, $e);
+			}
+			if (strlen($decodedKey) !== SODIUM_CRYPTO_STREAM_KEYBYTES) {
+				throw new InvalidKeyLengthException($id, strlen($decodedKey));
+			}
+			$this->keys[$id] = new HiddenString($decodedKey);
+		}
+		if (!isset($this->keys[$this->activeKeyId])) {
+			throw new ActiveKeyIdNotFoundException($this->activeKeyId);
 		}
 	}
 
@@ -64,7 +84,6 @@ class SymmetricKeyEncryption
 	 * @throws InvalidType
 	 * @throws SodiumException
 	 * @throws TypeError
-	 * @throws UnknownEncryptionKeyIdException
 	 */
 	public function encrypt(#[SensitiveParameter] string $data): string
 	{
@@ -83,7 +102,6 @@ class SymmetricKeyEncryption
 	 * @throws InvalidType
 	 * @throws SodiumException
 	 * @throws TypeError
-	 * @throws UnknownEncryptionKeyIdException
 	 */
 	public function encryptWithAd(#[SensitiveParameter] string $data, string $additionalData): string
 	{

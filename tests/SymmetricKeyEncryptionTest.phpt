@@ -7,8 +7,15 @@ namespace Spaze\Encryption;
 use OutOfBoundsException;
 use OutOfRangeException;
 use ParagonIE\Halite\Alerts\InvalidMessage;
+use ReflectionMethod;
+use SensitiveParameter;
+use SodiumException;
+use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
 use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
+use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
+use Spaze\Encryption\Exceptions\InvalidKeyIdException;
+use Spaze\Encryption\Exceptions\InvalidKeyLengthException;
 use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
@@ -28,6 +35,8 @@ class SymmetricKeyEncryptionTest extends TestCase
 	private const ACTIVE_KEY = 'dev2';
 
 	private const KEY_PREFIX = 'prefix';
+
+	private const TRUNCATED_KEY = 'aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff012';
 
 	/** @var array<string, string> */
 	private array $keys;
@@ -114,16 +123,35 @@ class SymmetricKeyEncryptionTest extends TestCase
 	}
 
 
-	public function testEncryptUnknownKey(): void
+	public function testConstructorActiveKeyIdNotFound(): void
 	{
 		$e = Assert::exception(
-			function () {
-				(new SymmetricKeyEncryption($this->keys, 'foo', self::KEY_PREFIX))->encrypt(self::PLAINTEXT);
+			function (): void {
+				new SymmetricKeyEncryption($this->keys, 'foo', self::KEY_PREFIX);
 			},
-			UnknownEncryptionKeyIdException::class,
+			ActiveKeyIdNotFoundException::class,
 			"Unknown encryption key id: 'foo'",
 		);
+		Assert::type(UnknownEncryptionKeyIdException::class, $e);
 		Assert::type(OutOfRangeException::class, $e);
+		Assert::exception(
+			function (): void {
+				new SymmetricKeyEncryption([], 'foo', self::KEY_PREFIX);
+			},
+			ActiveKeyIdNotFoundException::class,
+		);
+	}
+
+
+	public function testDecryptUnknownKeyId(): void
+	{
+		Assert::exception(
+			function (): void {
+				$this->encryption->decrypt('$unknown$x');
+			},
+			UnknownEncryptionKeyIdException::class,
+			"Unknown encryption key id: 'unknown'",
+		);
 	}
 
 
@@ -154,17 +182,33 @@ class SymmetricKeyEncryptionTest extends TestCase
 	}
 
 
-	public function testEncryptSensitiveParameter(): void
+	public function testEncryptWithAdSensitiveParameter(): void
 	{
+		// The empty additionalData guard is the only throw site reachable with a valid construction,
+		// so this is where the SensitiveParameter masking of the plaintext argument can be observed in a trace
 		$e = Assert::exception(
-			function () {
-				(new SymmetricKeyEncryption($this->keys, 'foo', self::KEY_PREFIX))->encrypt(self::PLAINTEXT);
+			function (): void {
+				$this->encryption->encryptWithAd(self::PLAINTEXT, '');
 			},
-			UnknownEncryptionKeyIdException::class,
+			EncryptWithAdNeedsAdditionalDataException::class,
 		);
-		assert($e instanceof UnknownEncryptionKeyIdException);
+		assert($e instanceof EncryptWithAdNeedsAdditionalDataException);
 		Assert::notContains(self::PLAINTEXT, $e->getTraceAsString());
 		Assert::contains('SensitiveParameterValue', $e->getTraceAsString());
+	}
+
+
+	public function testSensitiveParameterAttributes(): void
+	{
+		// encrypt() cannot be made to throw with a valid construction anymore, so pin its attribute directly
+		$parameters = [
+			(new ReflectionMethod(SymmetricKeyEncryption::class, '__construct'))->getParameters()[0],
+			(new ReflectionMethod(SymmetricKeyEncryption::class, 'encrypt'))->getParameters()[0],
+			(new ReflectionMethod(SymmetricKeyEncryption::class, 'encryptWithAd'))->getParameters()[0],
+		];
+		foreach ($parameters as $parameter) {
+			Assert::count(1, $parameter->getAttributes(SensitiveParameter::class));
+		}
 	}
 
 
@@ -173,6 +217,96 @@ class SymmetricKeyEncryptionTest extends TestCase
 		$object = print_r(new SymmetricKeyEncryption($this->keys, self::ACTIVE_KEY, self::KEY_PREFIX), true);
 		Assert::notContains($this->keys[self::ACTIVE_KEY], $object);
 		Assert::notContains($this->keys[self::INACTIVE_KEY], $object);
+	}
+
+
+	public function testConstructorInvalidKeyId(): void
+	{
+		// An empty key id would produce '$$<ciphertext>' which the parser rejects
+		Assert::exception(
+			function (): void {
+				new SymmetricKeyEncryption(['' => self::KEY_PREFIX . '_' . bin2hex(random_bytes(32))], '', self::KEY_PREFIX);
+			},
+			InvalidKeyIdException::class,
+			'Key id must not be empty',
+		);
+		// A key id with the separator would encrypt fine but produce output that can never be decrypted
+		Assert::exception(
+			function (): void {
+				new SymmetricKeyEncryption(['key$1' => self::KEY_PREFIX . '_' . bin2hex(random_bytes(32))], 'key$1', self::KEY_PREFIX);
+			},
+			InvalidKeyIdException::class,
+			"Key id 'key\$1' must not contain '\$'",
+		);
+	}
+
+
+	public function testConstructorInvalidKeyLength(): void
+	{
+		$shortKey = bin2hex(random_bytes(16));
+		$e = Assert::exception(
+			function () use ($shortKey): void {
+				new SymmetricKeyEncryption(['short' => self::KEY_PREFIX . '_' . $shortKey], 'short', self::KEY_PREFIX);
+			},
+			InvalidKeyLengthException::class,
+			"Key 'short' must be 32 bytes (64 hexadecimal characters) but is 16 bytes",
+		);
+		assert($e instanceof InvalidKeyLengthException);
+		Assert::notContains($shortKey, $e->getMessage());
+		Assert::exception(
+			function (): void {
+				new SymmetricKeyEncryption(['bytes31' => self::KEY_PREFIX . '_' . bin2hex(random_bytes(31))], 'bytes31', self::KEY_PREFIX);
+			},
+			InvalidKeyLengthException::class,
+			"Key 'bytes31' must be 32 bytes (64 hexadecimal characters) but is 31 bytes",
+		);
+	}
+
+
+	public function testConstructorInvalidKeyEncoding(): void
+	{
+		$truncatedKey = substr(bin2hex(random_bytes(32)), 0, 63);
+		$e = Assert::exception(
+			function () use ($truncatedKey): void {
+				new SymmetricKeyEncryption(['truncated' => self::KEY_PREFIX . '_' . $truncatedKey], 'truncated', self::KEY_PREFIX);
+			},
+			InvalidKeyEncodingException::class,
+			"Key 'truncated' is not a valid hex-encoded string",
+		);
+		assert($e instanceof InvalidKeyEncodingException);
+		Assert::type(SodiumException::class, $e->getPrevious());
+		Assert::exception(
+			function (): void {
+				new SymmetricKeyEncryption(['nonhex' => self::KEY_PREFIX . '_' . str_repeat('xy', 32)], 'nonhex', self::KEY_PREFIX);
+			},
+			InvalidKeyEncodingException::class,
+		);
+		// str_replace() used to strip all prefix occurrences silently, substr() removes only the leading one
+		Assert::exception(
+			function (): void {
+				new SymmetricKeyEncryption(['double' => self::KEY_PREFIX . '_' . self::KEY_PREFIX . '_' . bin2hex(random_bytes(32))], 'double', self::KEY_PREFIX);
+			},
+			InvalidKeyEncodingException::class,
+		);
+	}
+
+
+	public function testConstructorExceptionsDoNotLeakKeyMaterial(): void
+	{
+		// No `use` capture on purpose: captured variables show up in raw traces of the closure frame itself
+		$e = Assert::exception(
+			function (): void {
+				new SymmetricKeyEncryption(['truncated' => self::KEY_PREFIX . '_' . self::TRUNCATED_KEY], 'truncated', self::KEY_PREFIX);
+			},
+			InvalidKeyEncodingException::class,
+		);
+		$needle = substr(self::TRUNCATED_KEY, 0, 15); // getTraceAsString() truncates string arguments, check a prefix
+		while ($e !== null) {
+			Assert::notContains($needle, $e->getMessage());
+			Assert::notContains($needle, $e->getTraceAsString());
+			Assert::notContains($needle, print_r($e->getTrace(), true));
+			$e = $e->getPrevious();
+		}
 	}
 
 
