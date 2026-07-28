@@ -50,6 +50,8 @@ Spaze\Encryption\SymmetricKeyEncryption::encrypt(string $data): string
 ```
 The output will be formatted as `$<keyId>$<base64 ciphertext>`, for example `$key2$MUI...`, where `<keyId>` (`key2`) is the active key id set in the constructor. Store the whole value, don't parse it.
 
+The key id in the output is a hint that selects the decryption key. It is the only part of the output not protected against tampering, even by `encryptWithAd()`: changing the encrypted part makes decryption fail, while changing the key id just makes decryption try a different key, and fail because the key is different. Never configure the same key under two different ids.
+
 This method does not use any context binding (Additional Authenticated Data). Use `encryptWithAd()` if you want to bind the ciphertext to a specific context.
 
 Example:
@@ -99,6 +101,8 @@ You can then take all the data encrypted with the old key and re-encrypt them ju
 Once done you can delete the old key.
 
 You can use `needsReEncrypt($ciphertext): bool` to see if the data is encrypted with an inactive key and thus should be re-encrypted with the currently active one.
+
+When rotating, always generate a fresh key for the new key id. The key id in the encrypted output is not protected against tampering (see [Encrypt](#encrypt)), so two different key ids must never point to the same key.
 
 ## Usage in Nette framework
 
