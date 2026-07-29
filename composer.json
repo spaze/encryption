@@ -11,6 +11,7 @@
 	],
 	"require": {
 		"php": "^8.2",
+		"ext-sodium": "*",
 		"paragonie/halite": "^5.0",
 		"paragonie/hidden-string": "^2.0"
 	},
