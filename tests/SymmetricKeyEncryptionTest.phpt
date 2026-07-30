@@ -19,6 +19,7 @@ use Spaze\Encryption\Exceptions\InvalidKeyIdException;
 use Spaze\Encryption\Exceptions\InvalidKeyLengthException;
 use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
+use Spaze\Encryption\Exceptions\MissingKeyPrefixException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
 use Tester\Assert;
 use Tester\TestCase;
@@ -39,6 +40,16 @@ class SymmetricKeyEncryptionTest extends TestCase
 
 	private const TRUNCATED_KEY = 'aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff012';
 
+	private const FIXTURE_KEY_ID = 'fixture';
+
+	private const FIXTURE_KEY = self::KEY_PREFIX . '_00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
+
+	private const FIXTURE_AD = 'context';
+
+	private const FIXTURE_CIPHERTEXT = '$fixture$MUIFAFMn4bpPdCBV2amSVcLrvBf1a1wlFG_tchfj5GtWwmmYjSYoE7xC5eDbsBMUQ-DbSPW6SPDEJWsef_i2QSXASoOORvWozIIBAXs-Cpsu0kx4ANL81yzSKM8YR9_MqW9RcIpzu6YVYZNXz5DadkJcc8R52YrAr34i7K3QTyNPEg==';
+
+	private const FIXTURE_CIPHERTEXT_WITH_AD = '$fixture$MUIFABiOZSY_QL4thZ54sv63zb5raG13LwzEmr2cZzHmRC0Au_YlTdbj0756cedYIm1LhiGHspLw-nlxRhBUq3iDOto2fzaQ5QZtYNRwFEGiZfa-6cp3tjOzn8dAtHZ8H-24w-f0RasPgi4Ir_2OXBvG7qWFyrfgm2h_htarJtvE_w==';
+
 	/** @var array<string, string> */
 	private array $keys;
 
@@ -58,6 +69,17 @@ class SymmetricKeyEncryptionTest extends TestCase
 	public function testEncryptDecrypt(): void
 	{
 		Assert::same(self::PLAINTEXT, $this->encryption->decrypt($this->encryption->encrypt(self::PLAINTEXT)));
+	}
+
+
+	public function testDecryptStoredCipherText(): void
+	{
+		// Encrypted with a previous release and kept verbatim, because the output of this library is stored
+		// in databases: anything that changes the format or the key handling has to fail here first
+		$encryption = new SymmetricKeyEncryption([self::FIXTURE_KEY_ID => self::FIXTURE_KEY], self::FIXTURE_KEY_ID, self::KEY_PREFIX);
+		Assert::same(self::PLAINTEXT, $encryption->decrypt(self::FIXTURE_CIPHERTEXT));
+		Assert::same(self::PLAINTEXT, $encryption->decryptWithAd(self::FIXTURE_CIPHERTEXT_WITH_AD, self::FIXTURE_AD));
+		Assert::false($encryption->needsReEncrypt(self::FIXTURE_CIPHERTEXT));
 	}
 
 
@@ -280,6 +302,19 @@ class SymmetricKeyEncryptionTest extends TestCase
 	}
 
 
+	public function testConstructorNumericKeyId(): void
+	{
+		// PHP casts a numeric key id to an integer, the constructor has to cope with that and not just with strings
+		$keys = ['1' => self::KEY_PREFIX . '_' . bin2hex(random_bytes(32))];
+		Assert::same([0 => 1], array_keys($keys)); // the id is an int now, there's no way to keep it a string
+		$encryption = new SymmetricKeyEncryption($keys, '1', self::KEY_PREFIX);
+		$encrypted = $encryption->encrypt(self::PLAINTEXT);
+		Assert::same('$1$', substr($encrypted, 0, 3));
+		Assert::same(self::PLAINTEXT, $encryption->decrypt($encrypted));
+		Assert::false($encryption->needsReEncrypt($encrypted));
+	}
+
+
 	public function testConstructorInvalidKeyLength(): void
 	{
 		$shortKey = bin2hex(random_bytes(16));
@@ -333,30 +368,51 @@ class SymmetricKeyEncryptionTest extends TestCase
 	public function testConstructorExceptionsDoNotLeakKeyMaterial(): void
 	{
 		// No `use` capture on purpose: captured variables show up in raw traces of the closure frame itself
-		$e = Assert::exception(
-			function (): void {
-				new SymmetricKeyEncryption(['truncated' => self::KEY_PREFIX . '_' . self::TRUNCATED_KEY], 'truncated', self::KEY_PREFIX);
-			},
-			InvalidKeyEncodingException::class,
-		);
+		$exceptions = [
+			Assert::exception(
+				function (): void {
+					new SymmetricKeyEncryption(['truncated' => self::KEY_PREFIX . '_' . self::TRUNCATED_KEY], 'truncated', self::KEY_PREFIX);
+				},
+				InvalidKeyEncodingException::class,
+			),
+			// The prefix appended instead of prepended, so it's the key material that comes before the separator
+			Assert::exception(
+				function (): void {
+					new SymmetricKeyEncryption(['inverted' => self::TRUNCATED_KEY . '_' . self::KEY_PREFIX], 'inverted', self::KEY_PREFIX);
+				},
+				InvalidKeyPrefixException::class,
+			),
+			Assert::exception(
+				function (): void {
+					new SymmetricKeyEncryption(['bare' => self::TRUNCATED_KEY], 'bare', self::KEY_PREFIX);
+				},
+				MissingKeyPrefixException::class,
+			),
+		];
 		$needle = substr(self::TRUNCATED_KEY, 0, 15); // getTraceAsString() truncates string arguments, check a prefix
-		while ($e !== null) {
-			Assert::notContains($needle, $e->getMessage());
-			Assert::notContains($needle, $e->getTraceAsString());
-			Assert::notContains($needle, print_r($e->getTrace(), true));
-			$e = $e->getPrevious();
+		foreach ($exceptions as $e) {
+			while ($e !== null) {
+				Assert::notContains($needle, $e->getMessage());
+				Assert::notContains($needle, $e->getTraceAsString());
+				Assert::notContains($needle, print_r($e->getTrace(), true));
+				$e = $e->getPrevious();
+			}
 		}
 	}
 
 
 	public function testInvalidKeyPrefix(): void
 	{
-		Assert::exception(function (): void {
+		// No separator at all, so there's no prefix to be wrong in the first place
+		$e = Assert::exception(function (): void {
 			new SymmetricKeyEncryption(['foo' => 'keyMaterial'], self::ACTIVE_KEY, self::KEY_PREFIX);
-		}, InvalidKeyPrefixException::class, "Key 'foo' has no prefix");
-		Assert::exception(function (): void {
+		}, MissingKeyPrefixException::class, "Key 'foo' must start with 'prefix_'");
+		Assert::type(InvalidKeyPrefixException::class, $e);
+		$e = Assert::exception(function (): void {
 			new SymmetricKeyEncryption(['foo' => self::KEY_PREFIX . 'Invalid_keyMaterial'], self::ACTIVE_KEY, self::KEY_PREFIX);
-		}, InvalidKeyPrefixException::class, "Key 'foo' prefix is 'prefixInvalid' but it should be 'prefix'");
+		}, InvalidKeyPrefixException::class, "Key 'foo' must start with 'prefix_'");
+		// There is a prefix, it's just the wrong one, only the no-separator case throws the subclass
+		Assert::false($e instanceof MissingKeyPrefixException);
 	}
 
 }

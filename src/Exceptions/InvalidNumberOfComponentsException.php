@@ -5,5 +5,4 @@ namespace Spaze\Encryption\Exceptions;
 
 class InvalidNumberOfComponentsException extends InvalidCipherTextFormatException
 {
-
 }

@@ -23,6 +23,7 @@ use Spaze\Encryption\Exceptions\InvalidKeyIdException;
 use Spaze\Encryption\Exceptions\InvalidKeyLengthException;
 use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
+use Spaze\Encryption\Exceptions\MissingKeyPrefixException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
 use TypeError;
 use function count;
@@ -40,12 +41,13 @@ class SymmetricKeyEncryption
 
 
 	/**
-	 * @param array<string, string> $keys key id => key
+	 * @param array<array-key, string> $keys key id => key
 	 * @throws ActiveKeyIdNotFoundException
 	 * @throws InvalidKeyEncodingException
 	 * @throws InvalidKeyIdException
 	 * @throws InvalidKeyLengthException
 	 * @throws InvalidKeyPrefixException
+	 * @throws MissingKeyPrefixException
 	 */
 	public function __construct(
 		#[SensitiveParameter] array $keys,
@@ -54,12 +56,15 @@ class SymmetricKeyEncryption
 	) {
 		$keyPrefix = $this->keyPrefix . self::KEY_PREFIX_SEPARATOR;
 		foreach ($keys as $id => $key) {
+			$id = (string)$id;
 			if ($id === '' || str_contains($id, self::KEY_CIPHERTEXT_SEPARATOR)) {
 				throw new InvalidKeyIdException($id, self::KEY_CIPHERTEXT_SEPARATOR);
 			}
 			if (!str_starts_with($key, $keyPrefix)) {
-				$pos = strpos($key, self::KEY_PREFIX_SEPARATOR);
-				throw new InvalidKeyPrefixException($id, $this->keyPrefix, $pos !== false ? substr($key, 0, $pos) : null);
+				if (str_contains($key, self::KEY_PREFIX_SEPARATOR)) {
+					throw new InvalidKeyPrefixException($id, $keyPrefix);
+				}
+				throw new MissingKeyPrefixException($id, $keyPrefix);
 			}
 			try {
 				$decodedKey = sodium_hex2bin(substr($key, strlen($keyPrefix)));

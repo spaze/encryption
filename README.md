@@ -130,6 +130,16 @@ Note that Nette compiles parameter values into the generated DI container file i
 That directory tends to leak into places nobody thinks about: backups, deploy artifacts, rsync copies, debug tarballs sent to hosting support.
 Either treat the temp directory accordingly and exclude it from backups and artifacts, or use [dynamic parameters](https://doc.nette.org/en/application/bootstrapping#toc-dynamic-parameters) or environment variables so the key values are not baked into the compiled container.
 
+Exception logs are one of those places too. When a key is misconfigured, the `SymmetricKeyEncryption` constructor throws an exception while the container is creating the service, and Tracy logs that exception as an HTML file that includes the code around every line in the stack trace, the container line that passes the keys among them. Neither `#[SensitiveParameter]` nor `zend.exception_ignore_args` prevents that, both hide the values passed to a function, not the code printed around them.
+
+Anything that keeps the keys out of the generated container keeps them out of such a log as well. Besides the options above, you can also pass them as a runtime call, because Nette compiles a `@service::method()` argument into a call instead of a literal:
+```neon
+services:
+    encryptionKeys: Your\EncryptionKeys(%encryption.keyFile%)
+    emailEncryption: Spaze\Encryption\SymmetricKeyEncryption(@encryptionKeys::get('email'), %encryption.activeKeyIds.email%, %encryption.keyPrefixes.email%)
+```
+A file the service reads is a good fit if you want to keep the keys in a file: make it a PHP file that returns an array and OPcache will keep it compiled, so there's no parsing on each request. Whichever way you go, grep the generated container for a key prefix to confirm the keys are no longer in it.
+
 YOU HAVE TO GENERATE YOUR OWN KEYS. You can use for example
 ```php
 bin2hex(random_bytes(32))
