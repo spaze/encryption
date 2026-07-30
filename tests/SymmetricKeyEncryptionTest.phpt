@@ -40,6 +40,16 @@ class SymmetricKeyEncryptionTest extends TestCase
 
 	private const TRUNCATED_KEY = 'aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff012';
 
+	private const FIXTURE_KEY_ID = 'fixture';
+
+	private const FIXTURE_KEY = self::KEY_PREFIX . '_00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
+
+	private const FIXTURE_AD = 'context';
+
+	private const FIXTURE_CIPHERTEXT = '$fixture$MUIFAFMn4bpPdCBV2amSVcLrvBf1a1wlFG_tchfj5GtWwmmYjSYoE7xC5eDbsBMUQ-DbSPW6SPDEJWsef_i2QSXASoOORvWozIIBAXs-Cpsu0kx4ANL81yzSKM8YR9_MqW9RcIpzu6YVYZNXz5DadkJcc8R52YrAr34i7K3QTyNPEg==';
+
+	private const FIXTURE_CIPHERTEXT_WITH_AD = '$fixture$MUIFABiOZSY_QL4thZ54sv63zb5raG13LwzEmr2cZzHmRC0Au_YlTdbj0756cedYIm1LhiGHspLw-nlxRhBUq3iDOto2fzaQ5QZtYNRwFEGiZfa-6cp3tjOzn8dAtHZ8H-24w-f0RasPgi4Ir_2OXBvG7qWFyrfgm2h_htarJtvE_w==';
+
 	/** @var array<string, string> */
 	private array $keys;
 
@@ -59,6 +69,17 @@ class SymmetricKeyEncryptionTest extends TestCase
 	public function testEncryptDecrypt(): void
 	{
 		Assert::same(self::PLAINTEXT, $this->encryption->decrypt($this->encryption->encrypt(self::PLAINTEXT)));
+	}
+
+
+	public function testDecryptStoredCipherText(): void
+	{
+		// Encrypted with a previous release and kept verbatim, because the output of this library is stored
+		// in databases: anything that changes the format or the key handling has to fail here first
+		$encryption = new SymmetricKeyEncryption([self::FIXTURE_KEY_ID => self::FIXTURE_KEY], self::FIXTURE_KEY_ID, self::KEY_PREFIX);
+		Assert::same(self::PLAINTEXT, $encryption->decrypt(self::FIXTURE_CIPHERTEXT));
+		Assert::same(self::PLAINTEXT, $encryption->decryptWithAd(self::FIXTURE_CIPHERTEXT_WITH_AD, self::FIXTURE_AD));
+		Assert::false($encryption->needsReEncrypt(self::FIXTURE_CIPHERTEXT));
 	}
 
 
