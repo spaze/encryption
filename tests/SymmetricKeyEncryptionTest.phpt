@@ -19,6 +19,7 @@ use Spaze\Encryption\Exceptions\InvalidKeyIdException;
 use Spaze\Encryption\Exceptions\InvalidKeyLengthException;
 use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
+use Spaze\Encryption\Exceptions\MissingKeyPrefixException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
 use Tester\Assert;
 use Tester\TestCase;
@@ -346,30 +347,51 @@ class SymmetricKeyEncryptionTest extends TestCase
 	public function testConstructorExceptionsDoNotLeakKeyMaterial(): void
 	{
 		// No `use` capture on purpose: captured variables show up in raw traces of the closure frame itself
-		$e = Assert::exception(
-			function (): void {
-				new SymmetricKeyEncryption(['truncated' => self::KEY_PREFIX . '_' . self::TRUNCATED_KEY], 'truncated', self::KEY_PREFIX);
-			},
-			InvalidKeyEncodingException::class,
-		);
+		$exceptions = [
+			Assert::exception(
+				function (): void {
+					new SymmetricKeyEncryption(['truncated' => self::KEY_PREFIX . '_' . self::TRUNCATED_KEY], 'truncated', self::KEY_PREFIX);
+				},
+				InvalidKeyEncodingException::class,
+			),
+			// The prefix appended instead of prepended, so it's the key material that comes before the separator
+			Assert::exception(
+				function (): void {
+					new SymmetricKeyEncryption(['inverted' => self::TRUNCATED_KEY . '_' . self::KEY_PREFIX], 'inverted', self::KEY_PREFIX);
+				},
+				InvalidKeyPrefixException::class,
+			),
+			Assert::exception(
+				function (): void {
+					new SymmetricKeyEncryption(['bare' => self::TRUNCATED_KEY], 'bare', self::KEY_PREFIX);
+				},
+				MissingKeyPrefixException::class,
+			),
+		];
 		$needle = substr(self::TRUNCATED_KEY, 0, 15); // getTraceAsString() truncates string arguments, check a prefix
-		while ($e !== null) {
-			Assert::notContains($needle, $e->getMessage());
-			Assert::notContains($needle, $e->getTraceAsString());
-			Assert::notContains($needle, print_r($e->getTrace(), true));
-			$e = $e->getPrevious();
+		foreach ($exceptions as $e) {
+			while ($e !== null) {
+				Assert::notContains($needle, $e->getMessage());
+				Assert::notContains($needle, $e->getTraceAsString());
+				Assert::notContains($needle, print_r($e->getTrace(), true));
+				$e = $e->getPrevious();
+			}
 		}
 	}
 
 
 	public function testInvalidKeyPrefix(): void
 	{
-		Assert::exception(function (): void {
+		// No separator at all, so there's no prefix to be wrong in the first place
+		$e = Assert::exception(function (): void {
 			new SymmetricKeyEncryption(['foo' => 'keyMaterial'], self::ACTIVE_KEY, self::KEY_PREFIX);
-		}, InvalidKeyPrefixException::class, "Key 'foo' has no prefix");
-		Assert::exception(function (): void {
+		}, MissingKeyPrefixException::class, "Key 'foo' must start with 'prefix_'");
+		Assert::type(InvalidKeyPrefixException::class, $e);
+		$e = Assert::exception(function (): void {
 			new SymmetricKeyEncryption(['foo' => self::KEY_PREFIX . 'Invalid_keyMaterial'], self::ACTIVE_KEY, self::KEY_PREFIX);
-		}, InvalidKeyPrefixException::class, "Key 'foo' prefix is 'prefixInvalid' but it should be 'prefix'");
+		}, InvalidKeyPrefixException::class, "Key 'foo' must start with 'prefix_'");
+		// There is a prefix, it's just the wrong one, only the no-separator case throws the subclass
+		Assert::false($e instanceof MissingKeyPrefixException);
 	}
 
 }
