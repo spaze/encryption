@@ -40,7 +40,7 @@ class SymmetricKeyEncryption
 
 
 	/**
-	 * @param array<string, string> $keys key id => key
+	 * @param array<array-key, string> $keys key id => key
 	 * @throws ActiveKeyIdNotFoundException
 	 * @throws InvalidKeyEncodingException
 	 * @throws InvalidKeyIdException
@@ -54,6 +54,7 @@ class SymmetricKeyEncryption
 	) {
 		$keyPrefix = $this->keyPrefix . self::KEY_PREFIX_SEPARATOR;
 		foreach ($keys as $id => $key) {
+			$id = (string)$id;
 			if ($id === '' || str_contains($id, self::KEY_CIPHERTEXT_SEPARATOR)) {
 				throw new InvalidKeyIdException($id, self::KEY_CIPHERTEXT_SEPARATOR);
 			}

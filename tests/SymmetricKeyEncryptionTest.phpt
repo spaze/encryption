@@ -280,6 +280,19 @@ class SymmetricKeyEncryptionTest extends TestCase
 	}
 
 
+	public function testConstructorNumericKeyId(): void
+	{
+		// PHP casts a numeric key id to an integer, the constructor has to cope with that and not just with strings
+		$keys = ['1' => self::KEY_PREFIX . '_' . bin2hex(random_bytes(32))];
+		Assert::same([0 => 1], array_keys($keys)); // the id is an int now, there's no way to keep it a string
+		$encryption = new SymmetricKeyEncryption($keys, '1', self::KEY_PREFIX);
+		$encrypted = $encryption->encrypt(self::PLAINTEXT);
+		Assert::same('$1$', substr($encrypted, 0, 3));
+		Assert::same(self::PLAINTEXT, $encryption->decrypt($encrypted));
+		Assert::false($encryption->needsReEncrypt($encrypted));
+	}
+
+
 	public function testConstructorInvalidKeyLength(): void
 	{
 		$shortKey = bin2hex(random_bytes(16));
