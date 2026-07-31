@@ -9,11 +9,10 @@ use Throwable;
 class InvalidKeyLengthException extends Exception
 {
 
-	public function __construct(string $id, int $actualLength, ?Throwable $previous = null)
+	public function __construct(string $id, int $actualLength, int $expectedLength, ?Throwable $previous = null)
 	{
-		$expectedBytes = SODIUM_CRYPTO_STREAM_KEYBYTES;
-		$expectedHexChars = $expectedBytes * 2;
-		parent::__construct("Key '{$id}' must be {$expectedBytes} bytes ({$expectedHexChars} hexadecimal characters) but is {$actualLength} bytes", previous: $previous);
+		$expectedHexChars = $expectedLength * 2;
+		parent::__construct("Key '{$id}' must be {$expectedLength} bytes ({$expectedHexChars} hexadecimal characters) but is {$actualLength} bytes", previous: $previous);
 	}
 
 }

@@ -25,16 +25,14 @@ use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\MissingKeyPrefixException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
+use Spaze\Encryption\Format\KeyEnvelope;
 use TypeError;
-use function count;
-use function explode;
 
 class SymmetricKeyEncryption
 {
 
-	private const KEY_CIPHERTEXT_SEPARATOR = '$';
+	use KeyEnvelope;
 
-	private const KEY_PREFIX_SEPARATOR = '_';
 
 	/** @var array<string, HiddenString> */
 	private array $keys = [];
@@ -54,28 +52,7 @@ class SymmetricKeyEncryption
 		private string $activeKeyId,
 		private string $keyPrefix,
 	) {
-		$keyPrefix = $this->keyPrefix . self::KEY_PREFIX_SEPARATOR;
-		foreach ($keys as $id => $key) {
-			$id = (string)$id;
-			if ($id === '' || str_contains($id, self::KEY_CIPHERTEXT_SEPARATOR)) {
-				throw new InvalidKeyIdException($id, self::KEY_CIPHERTEXT_SEPARATOR);
-			}
-			if (!str_starts_with($key, $keyPrefix)) {
-				if (str_contains($key, self::KEY_PREFIX_SEPARATOR)) {
-					throw new InvalidKeyPrefixException($id, $keyPrefix);
-				}
-				throw new MissingKeyPrefixException($id, $keyPrefix);
-			}
-			try {
-				$decodedKey = sodium_hex2bin(substr($key, strlen($keyPrefix)));
-			} catch (SodiumException $e) {
-				throw new InvalidKeyEncodingException($id, $e);
-			}
-			if (strlen($decodedKey) !== SODIUM_CRYPTO_STREAM_KEYBYTES) {
-				throw new InvalidKeyLengthException($id, strlen($decodedKey));
-			}
-			$this->keys[$id] = new HiddenString($decodedKey);
-		}
+		$this->keys = $this->decodeKeys($keys, $this->keyPrefix, SODIUM_CRYPTO_STREAM_KEYBYTES);
 		if (!isset($this->keys[$this->activeKeyId])) {
 			throw new ActiveKeyIdNotFoundException($this->activeKeyId);
 		}
@@ -192,30 +169,6 @@ class SymmetricKeyEncryption
 		} else {
 			throw new UnknownEncryptionKeyIdException($keyId);
 		}
-	}
-
-
-	/**
-	 * @return array{0:non-empty-string, 1:non-empty-string}
-	 * @throws InvalidCipherTextFormatException
-	 * @throws InvalidNumberOfComponentsException
-	 */
-	private function parseKeyCipherText(string $data): array
-	{
-		$data = explode(self::KEY_CIPHERTEXT_SEPARATOR, $data);
-		if (count($data) !== 3) {
-			throw new InvalidNumberOfComponentsException();
-		}
-		if ($data[0] !== '' || $data[1] === '' || $data[2] === '') {
-			throw new InvalidCipherTextFormatException();
-		}
-		return [$data[1], $data[2]];
-	}
-
-
-	private function formatKeyCipherText(string $keyId, string $cipherText): string
-	{
-		return self::KEY_CIPHERTEXT_SEPARATOR . $keyId . self::KEY_CIPHERTEXT_SEPARATOR . $cipherText;
 	}
 
 }
