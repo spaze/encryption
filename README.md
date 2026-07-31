@@ -10,7 +10,7 @@ composer require spaze/encryption
 ```
 
 ## Usage
-This library provides symmetric encryption, where one key both encrypts and decrypts, [encryption between two parties](#encryption-between-two-parties), where each side holds its own secret key and the other side's public key, and [encryption to a public key](#encryption-to-a-public-key), where whoever encrypts the data cannot read it back. It uses [Halite](https://github.com/paragonie/halite), which relies on [libsodium](https://pecl.php.net/package/libsodium) for all of its underlying cryptography operations.
+This library provides symmetric encryption, where one key both encrypts and decrypts, [encryption between two parties](#encryption-between-two-parties), where each side holds its own secret key and the other side's public key, and [encryption to a public key](#encryption-to-a-public-key), where the key used to encrypt cannot decrypt the data. It uses [Halite](https://github.com/paragonie/halite), which relies on [libsodium](https://pecl.php.net/package/libsodium) for all of its underlying cryptography operations.
 Read the [Halite documentation](https://github.com/paragonie/halite/tree/master/doc) for more details, including the [cryptography primitives](https://github.com/paragonie/halite/blob/master/doc/Primitives.md) it uses.
 At the moment, signatures are not supported by this library.
 
@@ -146,7 +146,13 @@ $publicKey = 'adek_public_' . bin2hex(sodium_crypto_box_publickey($keyPair));
 ```
 
 ### Encrypt & decrypt
-The methods are the same as in `SymmetricKeyEncryption`: `encrypt()`, `decrypt()`, `encryptWithAd()` and `decryptWithAd()` for [context binding](#encrypt-with-additional-authenticated-data-aad), and `needsReEncrypt()` for [key rotation](#key-rotation). The output has the same `$<keyId>$<base64 ciphertext>` shape, and the same caveat applies: the key id in the output is not protected against tampering.
+The methods are the same as in `SymmetricKeyEncryption`: `encrypt()`, `decrypt()`, `encryptWithAd()` and `decryptWithAd()` for [context binding](#encrypt-with-additional-authenticated-data-aad), and `needsReEncrypt()` for [key rotation](#key-rotation).
+
+The output looks like `$<keyId>$AuthV1$<base64 ciphertext>`, or `$<keyId>$AuthAdV1$<...>` when created by `encryptWithAd()`. The marker between the key id and the encrypted part says what created the value: feeding an `encryptWithAd()` value to `decrypt()`, or a value from a different class to this one, fails with an exception that says what to call instead. The markers can never change; a future format change would introduce new marker values, so the digit works as a format version.
+
+Unlike in `SymmetricKeyEncryption`, the key id and the marker are protected against tampering: both go into what decryption verifies, so changing either of them in a stored value makes decryption fail. (The verified value is `{"keyId":"<base64>","marker":"<the marker from the stored value>"}` — so `AuthV1` or `AuthAdV1` — with an `"additionalData":"<base64>"` member added by `encryptWithAd()`; Base64 being the URL-safe kind with padding. This only matters if you ever need to decrypt the data with Halite directly, without this library.)
+
+Values in the older format without the marker — for example written by a previous library that used the same format — still decrypt, though their key id keeps the [old caveat](#encrypt), and `needsReEncrypt()` returns true for them, so a usual re-encryption sweep migrates them to the marked format.
 
 One thing deserves a special mention: a configuration with the two keys accidentally swapped can still encrypt and decrypt its own data just fine, only the data from the other party will fail to decrypt. When setting up, always verify by decrypting a value the other party encrypted, not one you encrypted yourself.
 
@@ -183,12 +189,16 @@ $encryption = new Spaze\Encryption\AnonymousPublicKeyEncryption(['key1' => 'adek
 ```
 
 ### Encrypt & decrypt
-`encrypt()`, `decrypt()` and `needsReEncrypt()` work like in the other two classes and the output has the same `$<keyId>$<base64 ciphertext>` shape, but there are no `encryptWithAd()`/`decryptWithAd()` methods, this flavor cannot bind the encrypted value to a context.
+`encrypt()`, `decrypt()` and `needsReEncrypt()` work like in the other two classes, but there are no `encryptWithAd()`/`decryptWithAd()` methods, this flavor cannot bind the encrypted value to a context.
+
+The output looks like `$<keyId>$AnonV1$<base64 ciphertext>`, where `AnonV1` is the marker saying what created the value — a value from a different class fails with an exception that names its creator. Values in the older format without the marker still decrypt, and `needsReEncrypt()` returns true for them, so a re-encryption sweep migrates them to the marked format. Unlike in `AuthenticatedPublicKeyEncryption`, the key id and the marker are not protected against tampering here — a sealed value has no place to verify them, so the [old caveat](#encrypt) stays.
 
 Trying to decrypt a key id that only has a public key configured throws `MissingSecretKeyException`, which usually means the code runs on an encrypt-only deployment. Re-encryption after a key rotation therefore has to run where the secret keys live: configure the old secret key and the new public key (or the new pair), and the data encrypted with the old key can be decrypted and re-encrypted with the new one.
 
 ### When decryption fails
-Halite reports any well-formed value that `AnonymousPublicKeyEncryption` cannot decrypt as `InvalidKey: Incorrect secret key for this sealed message`: a wrong key, corrupted data, and data that was actually created by `SymmetricKeyEncryption` or `AuthenticatedPublicKeyEncryption` all look the same. Only a value that is not even valid base64 gets a different error, `InvalidMessage: Invalid character encoding`. If you see the wrong-key error on data that should be fine, check which class created the value: `SymmetricKeyEncryption` and `AuthenticatedPublicKeyEncryption` fail with `InvalidMessage` when fed each other's data or data created by `AnonymousPublicKeyEncryption`. Their encrypted part also always starts with `MUI` — the beginning of a header Halite adds to everything it encrypts, with the next characters changing with the Halite version — while the encrypted part made by `AnonymousPublicKeyEncryption` has no header and looks random. The key id is the only reliable way to tell stored values apart, so don't reuse a key id across classes.
+Values with a marker say what created them: the two public-key classes refuse each other's marked values with an exception that names the creator, and `SymmetricKeyEncryption` rejects any marked value as a format error, so mixed-up values are easy to diagnose. The detective work below is only needed for values in the older format without the marker.
+
+Halite reports any well-formed unmarked value that `AnonymousPublicKeyEncryption` cannot decrypt as `InvalidKey: Incorrect secret key for this sealed message`: a wrong key, corrupted data, and data that was actually created by `SymmetricKeyEncryption` or `AuthenticatedPublicKeyEncryption` all look the same. Only a value that is not even valid base64 gets a different error, `InvalidMessage: Invalid character encoding`. If you see the wrong-key error on data that should be fine, check which class created the value: `SymmetricKeyEncryption` and `AuthenticatedPublicKeyEncryption` fail with `InvalidMessage` when fed each other's data or data created by `AnonymousPublicKeyEncryption`. Their encrypted part also always starts with `MUI` — the beginning of a header Halite adds to the output of those two classes, with the next characters changing with the Halite version — while the encrypted part made by `AnonymousPublicKeyEncryption` has no header and looks random. For unmarked values the key id is the only reliable way to tell them apart, so don't reuse a key id across classes.
 
 ## Usage in Nette framework
 

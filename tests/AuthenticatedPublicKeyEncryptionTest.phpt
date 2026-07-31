@@ -13,6 +13,7 @@ use SodiumException;
 use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
 use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
+use Spaze\Encryption\Exceptions\FormatMarkerMismatchException;
 use Spaze\Encryption\Exceptions\IncompleteKeyPairException;
 use Spaze\Encryption\Exceptions\InvalidCipherTextFormatException;
 use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
@@ -23,6 +24,7 @@ use Spaze\Encryption\Exceptions\InvalidKeyRoleException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\MissingKeyPrefixException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
+use Spaze\Encryption\Exceptions\UnknownFormatMarkerException;
 use Tester\Assert;
 use Tester\TestCase;
 
@@ -50,11 +52,15 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 
 	private const FIXTURE_AD = 'context';
 
-	private const FIXTURE_CIPHERTEXT = '$fixture$MUIFAMRbUzVvsTa1ruJ1cwBKGxyz_UCpBNQHahdaS9xnn1sYq8S6OTdO_Q-TajtFicMm_wXL9ENqMLfKkfdpsGVp6zVP370u4C3FFoWPY2vm_GoLwrUYfD4PAhfmiE-ULcRraDi_03yehZhU0JSE5MvmtVc3d5J-_aGI_I0YtP79Jg==';
+	private const FIXTURE_CIPHERTEXT = '$fixture$AuthV1$MUIFAOnzM02VpZezN5e1Btw8SLlIXW1TFIdTTdTcY2vEV1gg38GLwdJJhuMemNHTIM2QhyW9uoODsisT5hSLZqCfwqpo0-PQ9YAOl7hjehpN-CfzsOaHW2712Egm_QoUYLKcVYClkFxa9AQ__uRoviiT2rESbtEhmmPDLYt6Yqi-jA==';
 
-	private const FIXTURE_CIPHERTEXT_WITH_AD = '$fixture$MUIFAO1QOWgGPHLrGHgvrzpXA_7lUNgTuxmfV8LLP8uDtpQKxdDGTssw3XmedFoxrVPfWk9vqdRSrYBeiIvOu4NQUzeZtUlJnIWiLtgRXWjomHKPjvbqQQgksgeNoBho74O3eJ1UajVitRLFAD_bN-aIxDXY1X6jk43u7fP2ZP86ag==';
+	private const FIXTURE_CIPHERTEXT_WITH_AD = '$fixture$AuthAdV1$MUIFAM_-moGJClRlWiE6Fz3xVG68ZF_05sb0LebHLzNGsCjzy_u-SCcmFiR2HpAKVDokK2QGcmFwIwWFreZDfv-OL8ptvNb80X5Qs9KOJRTTGz9ZtoOSvYbexKQ-DxHte-tQbNTTbd-Z7vNq5X4DgmJfQM19WPLDcVBJ-wcmUnAG5A==';
 
-	private const FIXTURE_CIPHERTEXT_FROM_OTHER_PARTY = '$fixture$MUIFADmMiB4Kmq5Gi8fKn8zkW_ZV2Nds_LejRydwfAyuszG8EAV6jPCHlmh5gViNaHkYNRyRW1YPmlH9sNm54k_RfrOk-TIJubVGCq8byMyJrDNDp4yOxH6kHYXuyyx2lyc61vMbkgB2CRPd7R5rR4_NLRoE6qklMuLLT3_yYl7dSA==';
+	private const FIXTURE_CIPHERTEXT_FROM_OTHER_PARTY = '$fixture$AuthV1$MUIFAOc-ncN62DS3cmNQDwRwk619IYDH_27GAhknG5GcZy15DyvFC42WPzrj7stv-SenTEHgr29SFZyh9ZUE3Eug-qg8bS1oDRVHn6nUxh9sxuqEcbf1fSuAwPfe9bihbNSBhCKUm63VyTERgO8P9T4eqZmG7QQnw_h2Z2eENqaGdw==';
+
+	private const LEGACY_FIXTURE_CIPHERTEXT = '$fixture$MUIFAMRbUzVvsTa1ruJ1cwBKGxyz_UCpBNQHahdaS9xnn1sYq8S6OTdO_Q-TajtFicMm_wXL9ENqMLfKkfdpsGVp6zVP370u4C3FFoWPY2vm_GoLwrUYfD4PAhfmiE-ULcRraDi_03yehZhU0JSE5MvmtVc3d5J-_aGI_I0YtP79Jg==';
+
+	private const LEGACY_FIXTURE_CIPHERTEXT_WITH_AD = '$fixture$MUIFAO1QOWgGPHLrGHgvrzpXA_7lUNgTuxmfV8LLP8uDtpQKxdDGTssw3XmedFoxrVPfWk9vqdRSrYBeiIvOu4NQUzeZtUlJnIWiLtgRXWjomHKPjvbqQQgksgeNoBho74O3eJ1UajVitRLFAD_bN-aIxDXY1X6jk43u7fP2ZP86ag==';
 
 	/** @var array<string, string> */
 	private array $ourSecretKeys;
@@ -105,8 +111,22 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 		// The same two keys work in both directions, so a value encrypted by the other party decrypts with our config
 		Assert::same(self::PLAINTEXT, $encryption->decrypt(self::FIXTURE_CIPHERTEXT_FROM_OTHER_PARTY));
 		Assert::false($encryption->needsReEncrypt(self::FIXTURE_CIPHERTEXT));
-		// The encrypted part has the same shape as the symmetric class's output, only the key id tells them apart
-		Assert::same('$fixture$MUIFA', substr(self::FIXTURE_CIPHERTEXT, 0, 14));
+		Assert::false($encryption->needsReEncrypt(self::FIXTURE_CIPHERTEXT_WITH_AD));
+		// The encrypted part has the same shape as the symmetric class's output, the marker tells them apart
+		Assert::same('$fixture$AuthV1$MUIFA', substr(self::FIXTURE_CIPHERTEXT, 0, 21));
+		Assert::same('$fixture$AuthAdV1$MUIFA', substr(self::FIXTURE_CIPHERTEXT_WITH_AD, 0, 23));
+	}
+
+
+	public function testDecryptStoredLegacyCipherText(): void
+	{
+		// Values in the format without the marker, like the ones an older library wrote, have to keep decrypting,
+		// and needsReEncrypt() reports them so a re-encryption sweep migrates them to the marked format
+		$encryption = $this->createFixtureEncryption();
+		Assert::same(self::PLAINTEXT, $encryption->decrypt(self::LEGACY_FIXTURE_CIPHERTEXT));
+		Assert::same(self::PLAINTEXT, $encryption->decryptWithAd(self::LEGACY_FIXTURE_CIPHERTEXT_WITH_AD, self::FIXTURE_AD));
+		Assert::true($encryption->needsReEncrypt(self::LEGACY_FIXTURE_CIPHERTEXT));
+		Assert::true($encryption->needsReEncrypt(self::LEGACY_FIXTURE_CIPHERTEXT_WITH_AD));
 	}
 
 
@@ -141,15 +161,105 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 
 	public function testPairingFails(): void
 	{
+		// New values carry the marker, so mixing up the methods is caught by this library with a message
+		// that says what to call, before the decryption itself would fail
 		$encryptedWithAd = $this->encryption->encryptWithAd(self::PLAINTEXT, 'context');
 		Assert::exception(function () use ($encryptedWithAd) {
 			$this->encryption->decrypt($encryptedWithAd);
-		}, InvalidMessage::class);
+		}, FormatMarkerMismatchException::class, 'Data was encrypted with AuthenticatedPublicKeyEncryption::encryptWithAd(), decrypt it there with decryptWithAd()');
 
 		$encrypted = $this->encryption->encrypt(self::PLAINTEXT);
 		Assert::exception(function () use ($encrypted) {
 			$this->encryption->decryptWithAd($encrypted, 'context');
+		}, FormatMarkerMismatchException::class, 'Data was encrypted with AuthenticatedPublicKeyEncryption::encrypt(), decrypt it there with decrypt()');
+
+		// Values without the marker have no such protection and fail only when the decryption itself does
+		$fixtureEncryption = $this->createFixtureEncryption();
+		Assert::exception(function () use ($fixtureEncryption) {
+			$fixtureEncryption->decrypt(self::LEGACY_FIXTURE_CIPHERTEXT_WITH_AD);
 		}, InvalidMessage::class);
+		Assert::exception(function () use ($fixtureEncryption) {
+			$fixtureEncryption->decryptWithAd(self::LEGACY_FIXTURE_CIPHERTEXT, self::FIXTURE_AD);
+		}, InvalidMessage::class);
+	}
+
+
+	public function testKeyIdTamperingDetected(): void
+	{
+		// The key id and the marker go into what the decryption verifies. With every id mapping
+		// to a different key a flipped id fails anyway, so the test uses the same key under two ids
+		// (which the docs forbid) to prove the id itself is verified, not just the key it selects
+		$encryption = new AuthenticatedPublicKeyEncryption(
+			['key1' => $this->ourSecretKeys[self::ACTIVE_KEY], 'key2' => $this->ourSecretKeys[self::ACTIVE_KEY]],
+			['key1' => $this->theirPublicKeys[self::ACTIVE_KEY], 'key2' => $this->theirPublicKeys[self::ACTIVE_KEY]],
+			'key1',
+			self::KEY_PREFIX,
+		);
+		$tampered = str_replace('$key1$', '$key2$', $encryption->encrypt(self::PLAINTEXT));
+		Assert::exception(
+			function () use ($encryption, $tampered): void {
+				$encryption->decrypt($tampered);
+			},
+			InvalidMessage::class,
+		);
+	}
+
+
+	public function testMarkerStrippingDetected(): void
+	{
+		// Rewriting a marked value into the older format must not decrypt it as if it were genuine old data:
+		// the marker went into what the decryption verifies, so the downgrade fails there, not in the parser
+		$stripped = str_replace('$AuthV1$', '$', $this->encryption->encrypt(self::PLAINTEXT));
+		Assert::exception(function () use ($stripped): void {
+			$this->encryption->decrypt($stripped);
+		}, InvalidMessage::class);
+
+		$strippedWithAd = str_replace('$AuthAdV1$', '$', $this->encryption->encryptWithAd(self::PLAINTEXT, 'context'));
+		Assert::exception(function () use ($strippedWithAd): void {
+			$this->encryption->decryptWithAd($strippedWithAd, 'context');
+		}, InvalidMessage::class);
+	}
+
+
+	public function testFormatMarkerMismatch(): void
+	{
+		// A value created by the other class names its creator instead of failing with a misleading decryption error
+		Assert::exception(
+			function (): void {
+				$this->encryption->decrypt('$' . self::ACTIVE_KEY . '$AnonV1$vJpOCa5fgshA9i4tKlRhW0OX6xd5iZeI');
+			},
+			FormatMarkerMismatchException::class,
+			'Data was encrypted with AnonymousPublicKeyEncryption, decrypt it there',
+		);
+	}
+
+
+	public function testUnknownFormatMarker(): void
+	{
+		Assert::exception(
+			function (): void {
+				$this->encryption->needsReEncrypt('$' . self::ACTIVE_KEY . '$AuthV9$whatever');
+			},
+			UnknownFormatMarkerException::class,
+			"Unknown format marker 'AuthV9', was the data encrypted by a newer version of this library?",
+		);
+		// The marker comes from stored data, so a tampered value must not push arbitrary bytes into logs
+		$e = Assert::exception(
+			function (): void {
+				$this->encryption->needsReEncrypt('$' . self::ACTIVE_KEY . '$' . "bad\nmarker" . '$whatever');
+			},
+			UnknownFormatMarkerException::class,
+			"Unknown format marker 'bad?marker', was the data encrypted by a newer version of this library?",
+		);
+		assert($e instanceof UnknownFormatMarkerException);
+		Assert::notContains("\n", $e->getMessage());
+		Assert::exception(
+			function (): void {
+				$this->encryption->needsReEncrypt('$' . self::ACTIVE_KEY . '$' . str_repeat('x', 100) . '$whatever');
+			},
+			UnknownFormatMarkerException::class,
+			"Unknown format marker '" . str_repeat('x', 20) . "...', was the data encrypted by a newer version of this library?",
+		);
 	}
 
 
@@ -281,6 +391,21 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 			UnknownEncryptionKeyIdException::class,
 			"Unknown encryption key id: 'unknown'",
 		);
+		// The key id comes from stored data, so a tampered value must not push arbitrary bytes into logs
+		Assert::exception(
+			function (): void {
+				$this->encryption->decrypt('$' . "bad\nid" . '$AuthV1$x');
+			},
+			UnknownEncryptionKeyIdException::class,
+			"Unknown encryption key id: 'bad?id'",
+		);
+		Assert::exception(
+			function (): void {
+				$this->encryption->decrypt('$' . str_repeat('k', 100) . '$AuthV1$x');
+			},
+			UnknownEncryptionKeyIdException::class,
+			"Unknown encryption key id: '" . str_repeat('k', 20) . "...'",
+		);
 	}
 
 
@@ -292,7 +417,7 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 				$this->encryption->decrypt($invalidData);
 			},
 			InvalidCipherTextFormatException::class,
-			"Data format must be '\$keyId\$ciphertext'",
+			"Data format must be '\$keyId\$marker\$ciphertext' or '\$keyId\$ciphertext'",
 		);
 		Assert::type(OutOfBoundsException::class, $e);
 		Assert::exception(
@@ -313,9 +438,11 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 			['nothing'],
 			[''],
 			['$keyId'],
-			['$key$ciphertext$whatsDiz'],
+			['$keyId$marker$ciphertext$whatsDiz'],
 			['garbage$keyId$ciphertext'],
 			['$keyId$'],
+			['$keyId$marker$'],
+			['$$marker$ciphertext'],
 			['$$ciphertext'],
 			['$$'],
 		];
@@ -329,7 +456,7 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 				$this->encryption->decrypt('nothing');
 			},
 			InvalidNumberOfComponentsException::class,
-			"Data format must be '\$keyId\$ciphertext'",
+			"Data format must be '\$keyId\$marker\$ciphertext' or '\$keyId\$ciphertext'",
 		);
 		Assert::type(InvalidCipherTextFormatException::class, $e);
 		Assert::type(OutOfBoundsException::class, $e);

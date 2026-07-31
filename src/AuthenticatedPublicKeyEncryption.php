@@ -3,6 +3,7 @@ declare(strict_types = 1);
 
 namespace Spaze\Encryption;
 
+use JsonException;
 use ParagonIE\Halite\Alerts\CannotPerformOperation;
 use ParagonIE\Halite\Alerts\InvalidDigestLength;
 use ParagonIE\Halite\Alerts\InvalidKey;
@@ -18,6 +19,7 @@ use SodiumException;
 use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
 use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
+use Spaze\Encryption\Exceptions\FormatMarkerMismatchException;
 use Spaze\Encryption\Exceptions\IncompleteKeyPairException;
 use Spaze\Encryption\Exceptions\InvalidCipherTextFormatException;
 use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
@@ -28,7 +30,9 @@ use Spaze\Encryption\Exceptions\InvalidKeyRoleException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\MissingKeyPrefixException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
+use Spaze\Encryption\Exceptions\UnknownFormatMarkerException;
 use Spaze\Encryption\Format\AsymmetricKeyRole;
+use Spaze\Encryption\Format\FormatMarker;
 use Spaze\Encryption\Format\KeyEnvelope;
 use TypeError;
 use function array_keys;
@@ -87,29 +91,38 @@ class AuthenticatedPublicKeyEncryption
 
 
 	/**
+	 * The key id and the marker go into what the decryption verifies, so changing them
+	 * in the stored value makes decryption fail.
+	 *
 	 * @throws CannotPerformOperation
 	 * @throws InvalidDigestLength
 	 * @throws InvalidKey
 	 * @throws InvalidMessage
 	 * @throws InvalidType
+	 * @throws JsonException
 	 * @throws SodiumException
 	 * @throws TypeError
 	 */
 	public function encrypt(#[SensitiveParameter] string $data): string
 	{
 		[$secretKey, $publicKey] = $this->getKeyPair($this->activeKeyId);
-		$cipherText = Crypto::encrypt(new HiddenString($data), $secretKey, $publicKey);
-		return $this->formatKeyCipherText($this->activeKeyId, $cipherText);
+		$boundData = $this->buildBoundAdditionalData($this->activeKeyId, FormatMarker::AuthenticatedPublicKeyV1);
+		$cipherText = Crypto::encryptWithAD(new HiddenString($data), $secretKey, $publicKey, $boundData);
+		return $this->formatMarkedKeyCipherText($this->activeKeyId, FormatMarker::AuthenticatedPublicKeyV1, $cipherText);
 	}
 
 
 	/**
+	 * The key id and the marker are combined with the given additional data into what the decryption verifies,
+	 * so changing them in the stored value makes decryption fail.
+	 *
 	 * @throws CannotPerformOperation
 	 * @throws EncryptWithAdNeedsAdditionalDataException
 	 * @throws InvalidDigestLength
 	 * @throws InvalidKey
 	 * @throws InvalidMessage
 	 * @throws InvalidType
+	 * @throws JsonException
 	 * @throws SodiumException
 	 * @throws TypeError
 	 */
@@ -119,13 +132,15 @@ class AuthenticatedPublicKeyEncryption
 			throw new EncryptWithAdNeedsAdditionalDataException();
 		}
 		[$secretKey, $publicKey] = $this->getKeyPair($this->activeKeyId);
-		$cipherText = Crypto::encryptWithAD(new HiddenString($data), $secretKey, $publicKey, $additionalData);
-		return $this->formatKeyCipherText($this->activeKeyId, $cipherText);
+		$boundData = $this->buildBoundAdditionalData($this->activeKeyId, FormatMarker::AuthenticatedPublicKeyWithAdV1, $additionalData);
+		$cipherText = Crypto::encryptWithAD(new HiddenString($data), $secretKey, $publicKey, $boundData);
+		return $this->formatMarkedKeyCipherText($this->activeKeyId, FormatMarker::AuthenticatedPublicKeyWithAdV1, $cipherText);
 	}
 
 
 	/**
 	 * @throws CannotPerformOperation
+	 * @throws FormatMarkerMismatchException
 	 * @throws InvalidDigestLength
 	 * @throws InvalidKey
 	 * @throws InvalidMessage
@@ -133,21 +148,30 @@ class AuthenticatedPublicKeyEncryption
 	 * @throws InvalidType
 	 * @throws SodiumException
 	 * @throws TypeError
+	 * @throws JsonException
 	 * @throws UnknownEncryptionKeyIdException
+	 * @throws UnknownFormatMarkerException
 	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException
 	 */
 	public function decrypt(string $data): string
 	{
-		[$keyId, $cipherText] = $this->parseKeyCipherText($data);
+		[$keyId, $marker, $cipherText] = $this->parseMarkedKeyCipherText($data);
+		$this->checkFormatMarker($marker, FormatMarker::AuthenticatedPublicKeyV1);
 		[$secretKey, $publicKey] = $this->getKeyPair($keyId);
-		return Crypto::decrypt($cipherText, $secretKey, $publicKey)->getString();
+		if ($marker === null) {
+			// Data from before the marker existed, nothing was added to what the decryption verifies back then
+			return Crypto::decrypt($cipherText, $secretKey, $publicKey)->getString();
+		}
+		$boundData = $this->buildBoundAdditionalData($keyId, FormatMarker::AuthenticatedPublicKeyV1);
+		return Crypto::decryptWithAD($cipherText, $secretKey, $publicKey, $boundData)->getString();
 	}
 
 
 	/**
 	 * @throws CannotPerformOperation
 	 * @throws DecryptWithAdNeedsAdditionalDataException
+	 * @throws FormatMarkerMismatchException
 	 * @throws InvalidDigestLength
 	 * @throws InvalidKey
 	 * @throws InvalidMessage
@@ -155,7 +179,9 @@ class AuthenticatedPublicKeyEncryption
 	 * @throws InvalidType
 	 * @throws SodiumException
 	 * @throws TypeError
+	 * @throws JsonException
 	 * @throws UnknownEncryptionKeyIdException
+	 * @throws UnknownFormatMarkerException
 	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException
 	 */
@@ -164,23 +190,31 @@ class AuthenticatedPublicKeyEncryption
 		if ($additionalData === '') {
 			throw new DecryptWithAdNeedsAdditionalDataException();
 		}
-		[$keyId, $cipherText] = $this->parseKeyCipherText($data);
+		[$keyId, $marker, $cipherText] = $this->parseMarkedKeyCipherText($data);
+		$this->checkFormatMarker($marker, FormatMarker::AuthenticatedPublicKeyWithAdV1);
 		[$secretKey, $publicKey] = $this->getKeyPair($keyId);
-		return Crypto::decryptWithAD($cipherText, $secretKey, $publicKey, $additionalData)->getString();
+		if ($marker === null) {
+			// Data from before the marker existed, the additional data was used alone back then
+			return Crypto::decryptWithAD($cipherText, $secretKey, $publicKey, $additionalData)->getString();
+		}
+		$boundData = $this->buildBoundAdditionalData($keyId, FormatMarker::AuthenticatedPublicKeyWithAdV1, $additionalData);
+		return Crypto::decryptWithAD($cipherText, $secretKey, $publicKey, $boundData)->getString();
 	}
 
 
 	/**
-	 * Checks if the given data are encrypted with an inactive key
-	 * and thus should be re-encrypted with the currently active one.
+	 * Checks if the given data should be re-encrypted with the currently active key:
+	 * either they are encrypted with an inactive key, or they are stored in the older format
+	 * without the marker, and re-encrypting them adds it.
 	 *
+	 * @throws FormatMarkerMismatchException
 	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException
+	 * @throws UnknownFormatMarkerException
 	 */
 	public function needsReEncrypt(string $data): bool
 	{
-		[$keyId] = $this->parseKeyCipherText($data);
-		return $keyId !== $this->activeKeyId;
+		return $this->needsReEncryptMarked($data, $this->activeKeyId, FormatMarker::AuthenticatedPublicKeyV1, FormatMarker::AuthenticatedPublicKeyWithAdV1);
 	}
 
 

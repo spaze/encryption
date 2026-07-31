@@ -11,6 +11,7 @@ use ReflectionMethod;
 use SensitiveParameter;
 use SodiumException;
 use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
+use Spaze\Encryption\Exceptions\FormatMarkerMismatchException;
 use Spaze\Encryption\Exceptions\InvalidCipherTextFormatException;
 use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
 use Spaze\Encryption\Exceptions\InvalidKeyIdException;
@@ -22,6 +23,7 @@ use Spaze\Encryption\Exceptions\KeyPairMismatchException;
 use Spaze\Encryption\Exceptions\MissingKeyPrefixException;
 use Spaze\Encryption\Exceptions\MissingSecretKeyException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
+use Spaze\Encryption\Exceptions\UnknownFormatMarkerException;
 use Tester\Assert;
 use Tester\TestCase;
 
@@ -45,7 +47,9 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 
 	private const FIXTURE_SECRET_KEY_HEX = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
 
-	private const FIXTURE_CIPHERTEXT = '$fixture$DFuorlqIBtLKXuQB3WOwXP8uKem5PeQsCOB3VagYhja53nngvZMAoiAYvsyUhWE7BUi2spav';
+	private const FIXTURE_CIPHERTEXT = '$fixture$AnonV1$vJpOCa5fgshA9i4tKlRhW0OX6xd5iZeIK2F3muaZIWGwsEC1uPCbo4F-Tp2BuFTTp0eEkG_T';
+
+	private const LEGACY_FIXTURE_CIPHERTEXT = '$fixture$DFuorlqIBtLKXuQB3WOwXP8uKem5PeQsCOB3VagYhja53nngvZMAoiAYvsyUhWE7BUi2spav';
 
 	/** @var array<string, string> */
 	private array $secretKeys;
@@ -104,11 +108,48 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 	{
 		// Generated once when the feature was added and kept verbatim, because the output of this library is stored
 		// in databases: anything that changes the format or the key handling has to fail here first
-		$encryption = new AnonymousPublicKeyEncryption([self::FIXTURE_KEY_ID => self::KEY_PREFIX . '_secret_' . self::FIXTURE_SECRET_KEY_HEX], [], self::FIXTURE_KEY_ID, self::KEY_PREFIX);
+		$encryption = $this->createFixtureEncryption();
 		Assert::same(self::PLAINTEXT, $encryption->decrypt(self::FIXTURE_CIPHERTEXT));
 		Assert::false($encryption->needsReEncrypt(self::FIXTURE_CIPHERTEXT));
-		// Unlike the other two classes, the encrypted part carries no version marker, it looks like random data
-		Assert::notSame('$fixture$MUIFA', substr(self::FIXTURE_CIPHERTEXT, 0, 14));
+		Assert::same('$fixture$AnonV1$', substr(self::FIXTURE_CIPHERTEXT, 0, 16));
+		// Unlike in the other two classes, the encrypted part itself has no version header, it looks like random data.
+		// The leading '$' anchors the check to the envelope ('$' can never appear in the encrypted part itself)
+		Assert::notContains('$MUI', self::FIXTURE_CIPHERTEXT);
+	}
+
+
+	public function testDecryptStoredLegacyCipherText(): void
+	{
+		// Values in the format without the marker, like the ones an older library wrote, have to keep decrypting,
+		// and needsReEncrypt() reports them so a re-encryption sweep migrates them to the marked format
+		$encryption = $this->createFixtureEncryption();
+		Assert::same(self::PLAINTEXT, $encryption->decrypt(self::LEGACY_FIXTURE_CIPHERTEXT));
+		Assert::true($encryption->needsReEncrypt(self::LEGACY_FIXTURE_CIPHERTEXT));
+	}
+
+
+	public function testFormatMarkerMismatch(): void
+	{
+		// A value created by the other class names its creator instead of failing with a misleading decryption error
+		Assert::exception(
+			function (): void {
+				$this->encryption->decrypt('$' . self::ACTIVE_KEY . '$AuthV1$MUIFAwhatever');
+			},
+			FormatMarkerMismatchException::class,
+			'Data was encrypted with AuthenticatedPublicKeyEncryption::encrypt(), decrypt it there with decrypt()',
+		);
+	}
+
+
+	public function testUnknownFormatMarker(): void
+	{
+		Assert::exception(
+			function (): void {
+				$this->encryption->needsReEncrypt('$' . self::ACTIVE_KEY . '$AnonV9$whatever');
+			},
+			UnknownFormatMarkerException::class,
+			"Unknown format marker 'AnonV9', was the data encrypted by a newer version of this library?",
+		);
 	}
 
 
@@ -220,6 +261,14 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 			UnknownEncryptionKeyIdException::class,
 			"Unknown encryption key id: 'unknown'",
 		);
+		// The key id comes from stored data, so a tampered value must not push arbitrary bytes into logs
+		Assert::exception(
+			function (): void {
+				$this->encryption->decrypt('$' . "bad\nid" . '$AnonV1$x');
+			},
+			UnknownEncryptionKeyIdException::class,
+			"Unknown encryption key id: 'bad?id'",
+		);
 	}
 
 
@@ -231,7 +280,7 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 				$this->encryption->decrypt($invalidData);
 			},
 			InvalidCipherTextFormatException::class,
-			"Data format must be '\$keyId\$ciphertext'",
+			"Data format must be '\$keyId\$marker\$ciphertext' or '\$keyId\$ciphertext'",
 		);
 		Assert::type(OutOfBoundsException::class, $e);
 	}
@@ -246,9 +295,11 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 			['nothing'],
 			[''],
 			['$keyId'],
-			['$key$ciphertext$whatsDiz'],
+			['$keyId$marker$ciphertext$whatsDiz'],
 			['garbage$keyId$ciphertext'],
 			['$keyId$'],
+			['$keyId$marker$'],
+			['$$marker$ciphertext'],
 			['$$ciphertext'],
 			['$$'],
 		];
@@ -262,7 +313,7 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 				$this->encryption->decrypt('nothing');
 			},
 			InvalidNumberOfComponentsException::class,
-			"Data format must be '\$keyId\$ciphertext'",
+			"Data format must be '\$keyId\$marker\$ciphertext' or '\$keyId\$ciphertext'",
 		);
 		Assert::type(InvalidCipherTextFormatException::class, $e);
 		Assert::type(OutOfBoundsException::class, $e);
@@ -514,6 +565,12 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 				$e = $e->getPrevious();
 			}
 		}
+	}
+
+
+	private function createFixtureEncryption(): AnonymousPublicKeyEncryption
+	{
+		return new AnonymousPublicKeyEncryption([self::FIXTURE_KEY_ID => self::KEY_PREFIX . '_secret_' . self::FIXTURE_SECRET_KEY_HEX], [], self::FIXTURE_KEY_ID, self::KEY_PREFIX);
 	}
 
 

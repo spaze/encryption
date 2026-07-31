@@ -13,6 +13,7 @@ use ParagonIE\HiddenString\HiddenString;
 use SensitiveParameter;
 use SodiumException;
 use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
+use Spaze\Encryption\Exceptions\FormatMarkerMismatchException;
 use Spaze\Encryption\Exceptions\InvalidCipherTextFormatException;
 use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
 use Spaze\Encryption\Exceptions\InvalidKeyIdException;
@@ -24,7 +25,9 @@ use Spaze\Encryption\Exceptions\KeyPairMismatchException;
 use Spaze\Encryption\Exceptions\MissingKeyPrefixException;
 use Spaze\Encryption\Exceptions\MissingSecretKeyException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
+use Spaze\Encryption\Exceptions\UnknownFormatMarkerException;
 use Spaze\Encryption\Format\AsymmetricKeyRole;
+use Spaze\Encryption\Format\FormatMarker;
 use Spaze\Encryption\Format\KeyEnvelope;
 use TypeError;
 use function array_keys;
@@ -95,7 +98,7 @@ class AnonymousPublicKeyEncryption
 	{
 		// The constructor guarantees the active key id has a public key, configured or derived
 		$cipherText = Crypto::seal(new HiddenString($data), new EncryptionPublicKey($this->publicKeys[$this->activeKeyId]));
-		return $this->formatKeyCipherText($this->activeKeyId, $cipherText);
+		return $this->formatMarkedKeyCipherText($this->activeKeyId, FormatMarker::AnonymousPublicKeyV1, $cipherText);
 	}
 
 
@@ -103,6 +106,7 @@ class AnonymousPublicKeyEncryption
 	 * Halite reports any well-formed value it cannot decrypt as InvalidKey, a wrong key and corrupted data
 	 * are indistinguishable here; only a value that is not even valid base64 throws InvalidMessage instead.
 	 *
+	 * @throws FormatMarkerMismatchException
 	 * @throws InvalidKey
 	 * @throws InvalidMessage
 	 * @throws InvalidType
@@ -110,27 +114,31 @@ class AnonymousPublicKeyEncryption
 	 * @throws SodiumException
 	 * @throws TypeError
 	 * @throws UnknownEncryptionKeyIdException
+	 * @throws UnknownFormatMarkerException
 	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException
 	 */
 	public function decrypt(string $data): string
 	{
-		[$keyId, $cipherText] = $this->parseKeyCipherText($data);
+		[$keyId, $marker, $cipherText] = $this->parseMarkedKeyCipherText($data);
+		$this->checkFormatMarker($marker, FormatMarker::AnonymousPublicKeyV1);
 		return Crypto::unseal($cipherText, $this->getSecretKey($keyId))->getString();
 	}
 
 
 	/**
-	 * Checks if the given data are encrypted with an inactive key
-	 * and thus should be re-encrypted with the currently active one.
+	 * Checks if the given data should be re-encrypted with the currently active key:
+	 * either they are encrypted with an inactive key, or they are stored in the older format
+	 * without the marker, and re-encrypting them adds it.
 	 *
+	 * @throws FormatMarkerMismatchException
 	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException
+	 * @throws UnknownFormatMarkerException
 	 */
 	public function needsReEncrypt(string $data): bool
 	{
-		[$keyId] = $this->parseKeyCipherText($data);
-		return $keyId !== $this->activeKeyId;
+		return $this->needsReEncryptMarked($data, $this->activeKeyId, FormatMarker::AnonymousPublicKeyV1);
 	}
 
 
