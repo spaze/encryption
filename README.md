@@ -10,9 +10,9 @@ composer require spaze/encryption
 ```
 
 ## Usage
-This library provides symmetric encryption, where one key both encrypts and decrypts, and [encryption between two parties](#encryption-between-two-parties), where each side holds its own secret key and the other side's public key. It uses [Halite](https://github.com/paragonie/halite), which relies on [libsodium](https://pecl.php.net/package/libsodium) for all of its underlying cryptography operations.
+This library provides symmetric encryption, where one key both encrypts and decrypts, [encryption between two parties](#encryption-between-two-parties), where each side holds its own secret key and the other side's public key, and [encryption to a public key](#encryption-to-a-public-key), where whoever encrypts the data cannot read it back. It uses [Halite](https://github.com/paragonie/halite), which relies on [libsodium](https://pecl.php.net/package/libsodium) for all of its underlying cryptography operations.
 Read the [Halite documentation](https://github.com/paragonie/halite/tree/master/doc) for more details, including the [cryptography primitives](https://github.com/paragonie/halite/blob/master/doc/Primitives.md) it uses.
-At the moment, encryption to a public key and signatures are not supported by this library.
+At the moment, signatures are not supported by this library.
 
 The library is framework-agnostic, with minimal dependencies.
 
@@ -152,6 +152,44 @@ One thing deserves a special mention: a configuration with the two keys accident
 
 When either side replaces their keys, configure the new pair under a new key id on both sides and rotate the same way as with symmetric keys.
 
+## Encryption to a public key
+
+`Spaze\Encryption\AnonymousPublicKeyEncryption` encrypts data to a public key: anyone who has the public key can encrypt, only whoever holds the matching secret key can decrypt, and the encrypted value does not say who created it.
+
+The point is the split: a server that only stores the data can be configured with just the public keys and cannot read anything back, not even the values it has just encrypted itself. Decryption then happens elsewhere, in a back office application or a worker that holds the secret keys. If every deployment would hold the secret keys anyway, use `SymmetricKeyEncryption` instead, and if the reader also needs to know who created the data, use `AuthenticatedPublicKeyEncryption`.
+
+### Create the object using the constructor
+```php
+Spaze\Encryption\AnonymousPublicKeyEncryption::__construct(array $secretKeys, array $publicKeys, string $activeKeyId, string $keyPrefix)
+```
+
+#### `array $secretKeys`
+The secret keys, needed only where the data is decrypted. Encrypt-only deployments pass an empty array.
+
+#### `array $publicKeys`
+The public keys. A key id missing here is derived from the secret key with the same id, so a decrypting deployment can configure just the secret keys. When a key id has both values configured, the constructor verifies they belong together and throws `KeyPairMismatchException` when they don't, so a swapped or stale pair fails at construction and not weeks later on the first decrypt.
+
+The values are validated like in the other classes, including the optional `secret`/`public` tag (see [encryption between two parties](#encryption-between-two-parties)), and the pair is generated [the same way](#generating-a-key-pair). The active key id must have a public key, configured or derived.
+
+Example, the encrypting side:
+```php
+$encryption = new Spaze\Encryption\AnonymousPublicKeyEncryption([], ['key1' => 'adek_public_d22c[...]cfa3'], 'key1', 'adek');
+$encrypted = $encryption->encrypt($addressData); // works
+$decrypted = $encryption->decrypt($encrypted); // throws MissingSecretKeyException
+```
+The decrypting side:
+```php
+$encryption = new Spaze\Encryption\AnonymousPublicKeyEncryption(['key1' => 'adek_secret_79e0[...]8a8d'], [], 'key1', 'adek');
+```
+
+### Encrypt & decrypt
+`encrypt()`, `decrypt()` and `needsReEncrypt()` work like in the other two classes and the output has the same `$<keyId>$<base64 ciphertext>` shape, but there are no `encryptWithAd()`/`decryptWithAd()` methods, this flavor cannot bind the encrypted value to a context.
+
+Trying to decrypt a key id that only has a public key configured throws `MissingSecretKeyException`, which usually means the code runs on an encrypt-only deployment. Re-encryption after a key rotation therefore has to run where the secret keys live: configure the old secret key and the new public key (or the new pair), and the data encrypted with the old key can be decrypted and re-encrypted with the new one.
+
+### When decryption fails
+Halite reports any well-formed value that `AnonymousPublicKeyEncryption` cannot decrypt as `InvalidKey: Incorrect secret key for this sealed message`: a wrong key, corrupted data, and data that was actually created by `SymmetricKeyEncryption` or `AuthenticatedPublicKeyEncryption` all look the same. Only a value that is not even valid base64 gets a different error, `InvalidMessage: Invalid character encoding`. If you see the wrong-key error on data that should be fine, check which class created the value: `SymmetricKeyEncryption` and `AuthenticatedPublicKeyEncryption` fail with `InvalidMessage` when fed each other's data or data created by `AnonymousPublicKeyEncryption`. Their encrypted part also always starts with `MUI` — the beginning of a header Halite adds to everything it encrypts, with the next characters changing with the Halite version — while the encrypted part made by `AnonymousPublicKeyEncryption` has no header and looks random. The key id is the only reliable way to tell stored values apart, so don't reuse a key id across classes.
+
 ## Usage in Nette framework
 
 Although it can be used anywhere, this library doesn't depend on anything from the Nette Framework.
@@ -178,7 +216,7 @@ Note that Nette compiles parameter values into the generated DI container file i
 That directory tends to leak into places nobody thinks about: backups, deploy artifacts, rsync copies, debug tarballs sent to hosting support.
 Either treat the temp directory accordingly and exclude it from backups and artifacts, or use [dynamic parameters](https://doc.nette.org/en/application/bootstrapping#toc-dynamic-parameters) or environment variables so the key values are not baked into the compiled container.
 
-Exception logs are one of those places too. When a key is misconfigured, the `SymmetricKeyEncryption` constructor throws an exception while the container is creating the service, and Tracy logs that exception as an HTML file that includes the code around every line in the stack trace, the container line that passes the keys among them. Neither `#[SensitiveParameter]` nor `zend.exception_ignore_args` prevents that, both hide the values passed to a function, not the code printed around them.
+Exception logs are one of those places too. When a key is misconfigured, the constructors of these classes throw an exception while the container is creating the service, and Tracy logs that exception as an HTML file that includes the code around every line in the stack trace, the container line that passes the keys among them. Neither `#[SensitiveParameter]` nor `zend.exception_ignore_args` prevents that, both hide the values passed to a function, not the code printed around them.
 
 Anything that keeps the keys out of the generated container keeps them out of such a log as well. Besides the options above, you can also pass them as a runtime call, because Nette compiles a `@service::method()` argument into a call instead of a literal:
 ```neon
@@ -203,6 +241,13 @@ services:
     emailEncryption: \Spaze\Encryption\SymmetricKeyEncryption(%encryption.keys.email%, %encryption.activeKeyIds.email%, %encryption.prefixes.email%)
     passwordHashEncryption: \Spaze\Encryption\SymmetricKeyEncryption(%encryption.keys.passwordHash%, %encryption.activeKeyIds.passwordHash%, %encryption.prefixes.passwordHash%)
 ```
+
+The two public-key classes take two key arrays, so their groups need two lists in the parameters:
+```
+services:
+    invoiceEncryption: \Spaze\Encryption\AnonymousPublicKeyEncryption(%encryption.secretKeys.invoice%, %encryption.publicKeys.invoice%, %encryption.activeKeyIds.invoice%, %encryption.prefixes.invoice%)
+```
+On a deployment that only encrypts, define the secret keys list as empty (`secretKeys: {invoice: []}`) and keep the secret keys out of its configuration entirely.
 
 Use the services in this class which needs to encrypt and decrypt email addresses for whatever reason:
 ```php
