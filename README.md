@@ -10,9 +10,9 @@ composer require spaze/encryption
 ```
 
 ## Usage
-This library provides authenticated symmetric encryption using [Halite](https://github.com/paragonie/halite), which relies on [libsodium](https://pecl.php.net/package/libsodium) for all of its underlying cryptography operations.
+This library provides symmetric encryption, where one key both encrypts and decrypts, and [encryption between two parties](#encryption-between-two-parties), where each side holds its own secret key and the other side's public key. It uses [Halite](https://github.com/paragonie/halite), which relies on [libsodium](https://pecl.php.net/package/libsodium) for all of its underlying cryptography operations.
 Read the [Halite documentation](https://github.com/paragonie/halite/tree/master/doc) for more details, including the [cryptography primitives](https://github.com/paragonie/halite/blob/master/doc/Primitives.md) it uses.
-At the moment, asymmetric encryption and signatures are not supported by this library.
+At the moment, encryption to a public key and signatures are not supported by this library.
 
 The library is framework-agnostic, with minimal dependencies.
 
@@ -103,6 +103,54 @@ Once done you can delete the old key.
 You can use `needsReEncrypt($ciphertext): bool` to see if the data is encrypted with an inactive key and thus should be re-encrypted with the currently active one.
 
 When rotating, always generate a fresh key for the new key id. The key id in the encrypted output is not protected against tampering (see [Encrypt](#encrypt)), so two different key ids must never point to the same key.
+
+## Encryption between two parties
+
+`Spaze\Encryption\AuthenticatedPublicKeyEncryption` encrypts data exchanged between two parties. Each side configures its own secret key and the other side's public key under the same key id. Both sides can encrypt and decrypt, and decryption only succeeds when the data was created with one of the two configured keys, so a successful decryption also proves the data came from the other party, or from us.
+
+Because both sides can decrypt, this class does not hide the data from whoever can encrypt it. If both sides would be configured with the same keys anyway, use `SymmetricKeyEncryption` instead.
+
+### Create the object using the constructor
+```php
+Spaze\Encryption\AuthenticatedPublicKeyEncryption::__construct(array $secretKeys, array $publicKeys, string $activeKeyId, string $keyPrefix)
+```
+
+#### `array $secretKeys`
+An array of our own secret keys, a _key id_ (will be part of the encrypted string) as the array key, the prefixed _key_ as the value.
+
+#### `array $publicKeys`
+An array of the other party's public keys, one for every key id in `$secretKeys`. Every key id needs both keys, a key id with only one of them throws `IncompleteKeyPairException`.
+
+The values are validated like the symmetric keys (the prefix must match, the key must be valid hex and decode to exactly 32 bytes, the key id must be non-empty and must not contain `$`), with one addition: the value can carry a tag between the prefix and the key that says which kind of key it is, `adek_secret_79e0[...]8a8d` or `adek_public_d22c[...]cfa3`. The tag is optional, plain `adek_79e0[...]8a8d` values are accepted too, so existing configurations can be reused unchanged. Tagged keys are recommended though: a secret key pasted where a public key belongs (or the other way around) then throws `InvalidKeyRoleException` when the object is created, instead of producing encrypted data that nobody will ever be able to decrypt. And when you find a leaked string somewhere, the tag tells you how bad it is: `adek_secret_` means rotate the keys now, a public key is not a secret.
+
+#### `string $activeKeyId` and `string $keyPrefix`
+Same meaning and validation as in `SymmetricKeyEncryption` above.
+
+Example:
+```php
+$secretKeys = [
+    'key1' => 'adek_secret_79e0[...]8a8d',
+];
+$publicKeys = [
+    'key1' => 'adek_public_d22c[...]cfa3',
+];
+$encryption = new Spaze\Encryption\AuthenticatedPublicKeyEncryption($secretKeys, $publicKeys, 'key1', 'adek');
+```
+
+### Generating a key pair
+Each party generates their own pair, keeps the secret key to themselves and gives the public key to the other party:
+```php
+$keyPair = sodium_crypto_box_keypair();
+$secretKey = 'adek_secret_' . bin2hex(sodium_crypto_box_secretkey($keyPair));
+$publicKey = 'adek_public_' . bin2hex(sodium_crypto_box_publickey($keyPair));
+```
+
+### Encrypt & decrypt
+The methods are the same as in `SymmetricKeyEncryption`: `encrypt()`, `decrypt()`, `encryptWithAd()` and `decryptWithAd()` for [context binding](#encrypt-with-additional-authenticated-data-aad), and `needsReEncrypt()` for [key rotation](#key-rotation). The output has the same `$<keyId>$<base64 ciphertext>` shape, and the same caveat applies: the key id in the output is not protected against tampering.
+
+One thing deserves a special mention: a configuration with the two keys accidentally swapped can still encrypt and decrypt its own data just fine, only the data from the other party will fail to decrypt. When setting up, always verify by decrypting a value the other party encrypted, not one you encrypted yourself.
+
+When either side replaces their keys, configure the new pair under a new key id on both sides and rotate the same way as with symmetric keys.
 
 ## Usage in Nette framework
 

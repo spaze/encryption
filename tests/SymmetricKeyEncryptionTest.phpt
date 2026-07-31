@@ -362,6 +362,14 @@ class SymmetricKeyEncryptionTest extends TestCase
 			},
 			InvalidKeyEncodingException::class,
 		);
+		// The secret/public tags of the public-key classes mean nothing here, a tagged value is just invalid hex:
+		// the symmetric class must never start interpreting the tags
+		Assert::exception(
+			function (): void {
+				new SymmetricKeyEncryption(['tagged' => self::KEY_PREFIX . '_secret_' . bin2hex(random_bytes(32))], 'tagged', self::KEY_PREFIX);
+			},
+			InvalidKeyEncodingException::class,
+		);
 	}
 
 

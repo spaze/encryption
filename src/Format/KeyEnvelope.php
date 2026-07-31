@@ -11,6 +11,7 @@ use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
 use Spaze\Encryption\Exceptions\InvalidKeyIdException;
 use Spaze\Encryption\Exceptions\InvalidKeyLengthException;
 use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
+use Spaze\Encryption\Exceptions\InvalidKeyRoleException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\MissingKeyPrefixException;
 use function count;
@@ -33,9 +34,10 @@ trait KeyEnvelope
 	 * @throws InvalidKeyIdException
 	 * @throws InvalidKeyLengthException
 	 * @throws InvalidKeyPrefixException
+	 * @throws InvalidKeyRoleException
 	 * @throws MissingKeyPrefixException
 	 */
-	private function decodeKeys(#[SensitiveParameter] array $keys, string $keyPrefix, int $expectedLength): array
+	private function decodeKeys(#[SensitiveParameter] array $keys, string $keyPrefix, int $expectedLength, ?AsymmetricKeyRole $role = null): array
 	{
 		$keyPrefix .= self::KEY_PREFIX_SEPARATOR;
 		$decodedKeys = [];
@@ -50,8 +52,12 @@ trait KeyEnvelope
 				}
 				throw new MissingKeyPrefixException($id, $keyPrefix);
 			}
+			$hexKey = substr($key, strlen($keyPrefix));
+			if ($role !== null) {
+				$hexKey = $this->stripKeyRole($id, $hexKey, $role);
+			}
 			try {
-				$decodedKey = sodium_hex2bin(substr($key, strlen($keyPrefix)));
+				$decodedKey = sodium_hex2bin($hexKey);
 			} catch (SodiumException $e) {
 				throw new InvalidKeyEncodingException($id, $e);
 			}
@@ -61,6 +67,25 @@ trait KeyEnvelope
 			$decodedKeys[$id] = new HiddenString($decodedKey);
 		}
 		return $decodedKeys;
+	}
+
+
+	/**
+	 * The role tag between the prefix and the key itself is optional, but when present, it has to match how the key is used.
+	 *
+	 * @throws InvalidKeyRoleException
+	 */
+	private function stripKeyRole(string $id, #[SensitiveParameter] string $key, AsymmetricKeyRole $expectedRole): string
+	{
+		foreach (AsymmetricKeyRole::cases() as $role) {
+			if (str_starts_with($key, $role->value . self::KEY_PREFIX_SEPARATOR)) {
+				if ($role !== $expectedRole) {
+					throw new InvalidKeyRoleException($id, $expectedRole, $role);
+				}
+				return substr($key, strlen($role->value . self::KEY_PREFIX_SEPARATOR));
+			}
+		}
+		return $key;
 	}
 
 
