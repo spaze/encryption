@@ -10,9 +10,9 @@ composer require spaze/encryption
 ```
 
 ## Usage
-This library provides authenticated symmetric encryption using [Halite](https://github.com/paragonie/halite), which relies on [libsodium](https://pecl.php.net/package/libsodium) for all of its underlying cryptography operations.
+This library provides symmetric encryption, where one key both encrypts and decrypts, [encryption between two parties](#encryption-between-two-parties), where each side holds its own secret key and the other side's public key, and [encryption to a public key](#encryption-to-a-public-key), where the key used to encrypt cannot decrypt the data. It uses [Halite](https://github.com/paragonie/halite), which relies on [libsodium](https://pecl.php.net/package/libsodium) for all of its underlying cryptography operations.
 Read the [Halite documentation](https://github.com/paragonie/halite/tree/master/doc) for more details, including the [cryptography primitives](https://github.com/paragonie/halite/blob/master/doc/Primitives.md) it uses.
-At the moment, asymmetric encryption and signatures are not supported by this library.
+At the moment, signatures are not supported by this library.
 
 The library is framework-agnostic, with minimal dependencies.
 
@@ -104,6 +104,102 @@ You can use `needsReEncrypt($ciphertext): bool` to see if the data is encrypted 
 
 When rotating, always generate a fresh key for the new key id. The key id in the encrypted output is not protected against tampering (see [Encrypt](#encrypt)), so two different key ids must never point to the same key.
 
+## Encryption between two parties
+
+`Spaze\Encryption\AuthenticatedPublicKeyEncryption` encrypts data exchanged between two parties. Each side configures its own secret key and the other side's public key under the same key id. Both sides can encrypt and decrypt, and decryption only succeeds when the data was created with one of the two configured keys, so a successful decryption also proves the data came from the other party, or from us.
+
+Because both sides can decrypt, this class does not hide the data from whoever can encrypt it. If both sides would be configured with the same keys anyway, use `SymmetricKeyEncryption` instead.
+
+### Create the object using the constructor
+```php
+Spaze\Encryption\AuthenticatedPublicKeyEncryption::__construct(array $secretKeys, array $publicKeys, string $activeKeyId, string $keyPrefix)
+```
+
+#### `array $secretKeys`
+An array of our own secret keys, a _key id_ (will be part of the encrypted string) as the array key, the prefixed _key_ as the value.
+
+#### `array $publicKeys`
+An array of the other party's public keys, one for every key id in `$secretKeys`. Every key id needs both keys, a key id with only one of them throws `IncompleteKeyPairException`.
+
+The values are validated like the symmetric keys (the prefix must match, the key must be valid hex and decode to exactly 32 bytes, the key id must be non-empty and must not contain `$`), with one addition: the value can carry a tag between the prefix and the key that says which kind of key it is, `adek_secret_79e0[...]8a8d` or `adek_public_d22c[...]cfa3`. The tag is optional, plain `adek_79e0[...]8a8d` values are accepted too, so existing configurations can be reused unchanged. Tagged keys are recommended though: a secret key pasted where a public key belongs (or the other way around) then throws `InvalidKeyRoleException` when the object is created, instead of producing encrypted data that nobody will ever be able to decrypt. And when you find a leaked string somewhere, the tag tells you how bad it is: `adek_secret_` means rotate the keys now, a public key is not a secret.
+
+#### `string $activeKeyId` and `string $keyPrefix`
+Same meaning and validation as in `SymmetricKeyEncryption` above.
+
+Example:
+```php
+$secretKeys = [
+    'key1' => 'adek_secret_79e0[...]8a8d',
+];
+$publicKeys = [
+    'key1' => 'adek_public_d22c[...]cfa3',
+];
+$encryption = new Spaze\Encryption\AuthenticatedPublicKeyEncryption($secretKeys, $publicKeys, 'key1', 'adek');
+```
+
+### Generating a key pair
+Each party generates their own pair, keeps the secret key to themselves and gives the public key to the other party:
+```php
+$keyPair = sodium_crypto_box_keypair();
+$secretKey = 'adek_secret_' . bin2hex(sodium_crypto_box_secretkey($keyPair));
+$publicKey = 'adek_public_' . bin2hex(sodium_crypto_box_publickey($keyPair));
+```
+
+### Encrypt & decrypt
+The methods are the same as in `SymmetricKeyEncryption`: `encrypt()`, `decrypt()`, `encryptWithAd()` and `decryptWithAd()` for [context binding](#encrypt-with-additional-authenticated-data-aad), and `needsReEncrypt()` for [key rotation](#key-rotation).
+
+The output looks like `$<keyId>$AuthV1$<base64 ciphertext>`, or `$<keyId>$AuthAdV1$<...>` when created by `encryptWithAd()`. The marker between the key id and the encrypted part says what created the value: feeding an `encryptWithAd()` value to `decrypt()`, or a value from a different class to this one, fails with an exception that says what to call instead. The markers can never change; a future format change would introduce new marker values, so the digit works as a format version.
+
+Unlike in `SymmetricKeyEncryption`, the key id and the marker are protected against tampering: both go into what decryption verifies, so changing either of them in a stored value makes decryption fail. (The verified value is `{"keyId":"<base64>","marker":"<the marker from the stored value>"}` — so `AuthV1` or `AuthAdV1` — with an `"additionalData":"<base64>"` member added by `encryptWithAd()`; Base64 being the URL-safe kind with padding. This only matters if you ever need to decrypt the data with Halite directly, without this library.)
+
+Values in the older format without the marker — for example written by a previous library that used the same format — still decrypt, though their key id keeps the [old caveat](#encrypt), and `needsReEncrypt()` returns true for them, so a usual re-encryption sweep migrates them to the marked format.
+
+One thing deserves a special mention: a configuration with the two keys accidentally swapped can still encrypt and decrypt its own data just fine, only the data from the other party will fail to decrypt. When setting up, always verify by decrypting a value the other party encrypted, not one you encrypted yourself.
+
+When either side replaces their keys, configure the new pair under a new key id on both sides and rotate the same way as with symmetric keys.
+
+## Encryption to a public key
+
+`Spaze\Encryption\AnonymousPublicKeyEncryption` encrypts data to a public key: anyone who has the public key can encrypt, only whoever holds the matching secret key can decrypt, and the encrypted value does not say who created it.
+
+The point is the split: a server that only stores the data can be configured with just the public keys and cannot read anything back, not even the values it has just encrypted itself. Decryption then happens elsewhere, in a back office application or a worker that holds the secret keys. If every deployment would hold the secret keys anyway, use `SymmetricKeyEncryption` instead, and if the reader also needs to know who created the data, use `AuthenticatedPublicKeyEncryption`.
+
+### Create the object using the constructor
+```php
+Spaze\Encryption\AnonymousPublicKeyEncryption::__construct(array $secretKeys, array $publicKeys, string $activeKeyId, string $keyPrefix)
+```
+
+#### `array $secretKeys`
+The secret keys, needed only where the data is decrypted. Encrypt-only deployments pass an empty array.
+
+#### `array $publicKeys`
+The public keys. A key id missing here is derived from the secret key with the same id, so a decrypting deployment can configure just the secret keys. When a key id has both values configured, the constructor verifies they belong together and throws `KeyPairMismatchException` when they don't, so a swapped or stale pair fails at construction and not weeks later on the first decrypt.
+
+The values are validated like in the other classes, including the optional `secret`/`public` tag (see [encryption between two parties](#encryption-between-two-parties)), and the pair is generated [the same way](#generating-a-key-pair). The active key id must have a public key, configured or derived.
+
+Example, the encrypting side:
+```php
+$encryption = new Spaze\Encryption\AnonymousPublicKeyEncryption([], ['key1' => 'adek_public_d22c[...]cfa3'], 'key1', 'adek');
+$encrypted = $encryption->encrypt($addressData); // works
+$decrypted = $encryption->decrypt($encrypted); // throws MissingSecretKeyException
+```
+The decrypting side:
+```php
+$encryption = new Spaze\Encryption\AnonymousPublicKeyEncryption(['key1' => 'adek_secret_79e0[...]8a8d'], [], 'key1', 'adek');
+```
+
+### Encrypt & decrypt
+`encrypt()`, `decrypt()` and `needsReEncrypt()` work like in the other two classes, but there are no `encryptWithAd()`/`decryptWithAd()` methods, this flavor cannot bind the encrypted value to a context.
+
+The output looks like `$<keyId>$AnonV1$<base64 ciphertext>`, where `AnonV1` is the marker saying what created the value — a value from a different class fails with an exception that names its creator. Values in the older format without the marker still decrypt, and `needsReEncrypt()` returns true for them, so a re-encryption sweep migrates them to the marked format. Unlike in `AuthenticatedPublicKeyEncryption`, the key id and the marker are not protected against tampering here — a sealed value has no place to verify them, so the [old caveat](#encrypt) stays.
+
+Trying to decrypt a key id that only has a public key configured throws `MissingSecretKeyException`, which usually means the code runs on an encrypt-only deployment. Re-encryption after a key rotation therefore has to run where the secret keys live: configure the old secret key and the new public key (or the new pair), and the data encrypted with the old key can be decrypted and re-encrypted with the new one.
+
+### When decryption fails
+Values with a marker say what created them: the two public-key classes refuse each other's marked values with an exception that names the creator, and `SymmetricKeyEncryption` rejects any marked value as a format error, so mixed-up values are easy to diagnose. The detective work below is only needed for values in the older format without the marker.
+
+Halite reports any well-formed unmarked value that `AnonymousPublicKeyEncryption` cannot decrypt as `InvalidKey: Incorrect secret key for this sealed message`: a wrong key, corrupted data, and data that was actually created by `SymmetricKeyEncryption` or `AuthenticatedPublicKeyEncryption` all look the same. Only a value that is not even valid base64 gets a different error, `InvalidMessage: Invalid character encoding`. If you see the wrong-key error on data that should be fine, check which class created the value: `SymmetricKeyEncryption` and `AuthenticatedPublicKeyEncryption` fail with `InvalidMessage` when fed each other's data or data created by `AnonymousPublicKeyEncryption`. Their encrypted part also always starts with `MUI` — the beginning of a header Halite adds to the output of those two classes, with the next characters changing with the Halite version — while the encrypted part made by `AnonymousPublicKeyEncryption` has no header and looks random. For unmarked values the key id is the only reliable way to tell them apart, so don't reuse a key id across classes.
+
 ## Usage in Nette framework
 
 Although it can be used anywhere, this library doesn't depend on anything from the Nette Framework.
@@ -130,7 +226,7 @@ Note that Nette compiles parameter values into the generated DI container file i
 That directory tends to leak into places nobody thinks about: backups, deploy artifacts, rsync copies, debug tarballs sent to hosting support.
 Either treat the temp directory accordingly and exclude it from backups and artifacts, or use [dynamic parameters](https://doc.nette.org/en/application/bootstrapping#toc-dynamic-parameters) or environment variables so the key values are not baked into the compiled container.
 
-Exception logs are one of those places too. When a key is misconfigured, the `SymmetricKeyEncryption` constructor throws an exception while the container is creating the service, and Tracy logs that exception as an HTML file that includes the code around every line in the stack trace, the container line that passes the keys among them. Neither `#[SensitiveParameter]` nor `zend.exception_ignore_args` prevents that, both hide the values passed to a function, not the code printed around them.
+Exception logs are one of those places too. When a key is misconfigured, the constructors of these classes throw an exception while the container is creating the service, and Tracy logs that exception as an HTML file that includes the code around every line in the stack trace, the container line that passes the keys among them. Neither `#[SensitiveParameter]` nor `zend.exception_ignore_args` prevents that, both hide the values passed to a function, not the code printed around them.
 
 Anything that keeps the keys out of the generated container keeps them out of such a log as well. Besides the options above, you can also pass them as a runtime call, because Nette compiles a `@service::method()` argument into a call instead of a literal:
 ```neon
@@ -155,6 +251,13 @@ services:
     emailEncryption: \Spaze\Encryption\SymmetricKeyEncryption(%encryption.keys.email%, %encryption.activeKeyIds.email%, %encryption.prefixes.email%)
     passwordHashEncryption: \Spaze\Encryption\SymmetricKeyEncryption(%encryption.keys.passwordHash%, %encryption.activeKeyIds.passwordHash%, %encryption.prefixes.passwordHash%)
 ```
+
+The two public-key classes take two key arrays, so their groups need two lists in the parameters:
+```
+services:
+    invoiceEncryption: \Spaze\Encryption\AnonymousPublicKeyEncryption(%encryption.secretKeys.invoice%, %encryption.publicKeys.invoice%, %encryption.activeKeyIds.invoice%, %encryption.prefixes.invoice%)
+```
+On a deployment that only encrypts, define the secret keys list as empty (`secretKeys: {invoice: []}`) and keep the secret keys out of its configuration entirely.
 
 Use the services in this class which needs to encrypt and decrypt email addresses for whatever reason:
 ```php
