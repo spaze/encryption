@@ -276,8 +276,12 @@ class SymmetricKeyEncryptionTest extends TestCase
 	public function testHiddenStringKeys(): void
 	{
 		$object = print_r(new SymmetricKeyEncryption($this->keys, self::ACTIVE_KEY, self::KEY_PREFIX), true);
-		Assert::notContains($this->keys[self::ACTIVE_KEY], $object);
-		Assert::notContains($this->keys[self::INACTIVE_KEY], $object);
+		// The object stores only the decoded bytes, so those are the needles that matter:
+		// checking just the config strings would pass even if the keys were stored as plain strings
+		foreach ($this->keys as $key) {
+			Assert::notContains($key, $object);
+			Assert::notContains(sodium_hex2bin(substr($key, strlen(self::KEY_PREFIX . '_'))), $object);
+		}
 	}
 
 
@@ -299,6 +303,23 @@ class SymmetricKeyEncryptionTest extends TestCase
 			InvalidKeyIdException::class,
 			"Key id 'key\$1' must not contain '\$'",
 		);
+	}
+
+
+	public function testConstructorKeyPastedAsKeyIdShortened(): void
+	{
+		// A whole key pasted into the id slot ends up repeated in the exception message,
+		// so the message shows only the beginning of the id, like everywhere a stored value is repeated
+		$keyAsId = self::TRUNCATED_KEY . 'a';
+		$e = Assert::exception(
+			function () use ($keyAsId): void {
+				new SymmetricKeyEncryption([$keyAsId => 'garbage'], $keyAsId, self::KEY_PREFIX);
+			},
+			MissingKeyPrefixException::class,
+			"Key '" . substr($keyAsId, 0, 20) . "...' must start with 'prefix_'",
+		);
+		assert($e instanceof MissingKeyPrefixException);
+		Assert::notContains(substr($keyAsId, 20), $e->getMessage());
 	}
 
 

@@ -184,6 +184,20 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 			KeyPairMismatchException::class,
 			"Public key 'dev1' is not the public half of secret key 'dev1'",
 		);
+		// A whole key pasted into the id slot ends up repeated in the message, so only its beginning may show
+		$keyAsId = self::TRUNCATED_KEY . 'a';
+		Assert::exception(
+			function () use ($keyAsId): void {
+				new AnonymousPublicKeyEncryption(
+					[$keyAsId => $this->secretKeys[self::ACTIVE_KEY]],
+					[$keyAsId => $this->publicKeys[self::INACTIVE_KEY]],
+					$keyAsId,
+					self::KEY_PREFIX,
+				);
+			},
+			KeyPairMismatchException::class,
+			"Public key '" . substr($keyAsId, 0, 20) . "...' is not the public half of secret key '" . substr($keyAsId, 0, 20) . "...'",
+		);
 	}
 
 

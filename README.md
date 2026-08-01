@@ -232,7 +232,7 @@ Anything that keeps the keys out of the generated container keeps them out of su
 ```neon
 services:
     encryptionKeys: Your\EncryptionKeys(%encryption.keyFile%)
-    emailEncryption: Spaze\Encryption\SymmetricKeyEncryption(@encryptionKeys::get('email'), %encryption.activeKeyIds.email%, %encryption.keyPrefixes.email%)
+    emailEncryption: Spaze\Encryption\SymmetricKeyEncryption(@encryptionKeys::get('email'), %encryption.activeKeyIds.email%, %encryption.prefixes.email%)
 ```
 A file the service reads is a good fit if you want to keep the keys in a file: make it a PHP file that returns an array and OPcache will keep it compiled, so there's no parsing on each request. Whichever way you go, grep the generated container for a key prefix to confirm the keys are no longer in it.
 
