@@ -276,8 +276,12 @@ class SymmetricKeyEncryptionTest extends TestCase
 	public function testHiddenStringKeys(): void
 	{
 		$object = print_r(new SymmetricKeyEncryption($this->keys, self::ACTIVE_KEY, self::KEY_PREFIX), true);
-		Assert::notContains($this->keys[self::ACTIVE_KEY], $object);
-		Assert::notContains($this->keys[self::INACTIVE_KEY], $object);
+		// The object stores only the decoded bytes, so those are the needles that matter:
+		// checking just the config strings would pass even if the keys were stored as plain strings
+		foreach ($this->keys as $key) {
+			Assert::notContains($key, $object);
+			Assert::notContains(sodium_hex2bin(substr($key, strlen(self::KEY_PREFIX . '_'))), $object);
+		}
 	}
 
 
