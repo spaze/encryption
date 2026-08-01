@@ -302,6 +302,23 @@ class SymmetricKeyEncryptionTest extends TestCase
 	}
 
 
+	public function testConstructorKeyPastedAsKeyIdShortened(): void
+	{
+		// A whole key pasted into the id slot ends up repeated in the exception message,
+		// so the message shows only the beginning of the id, like everywhere a stored value is repeated
+		$keyAsId = self::TRUNCATED_KEY . 'a';
+		$e = Assert::exception(
+			function () use ($keyAsId): void {
+				new SymmetricKeyEncryption([$keyAsId => 'garbage'], $keyAsId, self::KEY_PREFIX);
+			},
+			MissingKeyPrefixException::class,
+			"Key '" . substr($keyAsId, 0, 20) . "...' must start with 'prefix_'",
+		);
+		assert($e instanceof MissingKeyPrefixException);
+		Assert::notContains(substr($keyAsId, 20), $e->getMessage());
+	}
+
+
 	public function testConstructorNumericKeyId(): void
 	{
 		// PHP casts a numeric key id to an integer, the constructor has to cope with that and not just with strings

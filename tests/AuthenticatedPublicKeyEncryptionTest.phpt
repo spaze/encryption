@@ -339,6 +339,15 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 			IncompleteKeyPairException::class,
 			"Key id '1' needs both our secret key and the other party's public key",
 		);
+		// A whole key pasted into the id slot ends up repeated in the message, so only its beginning may show
+		$keyAsId = self::TRUNCATED_KEY . 'a';
+		Assert::exception(
+			function () use ($keyAsId): void {
+				new AuthenticatedPublicKeyEncryption([$keyAsId => $this->ourSecretKeys[self::ACTIVE_KEY]], [], $keyAsId, self::KEY_PREFIX);
+			},
+			IncompleteKeyPairException::class,
+			"Key id '" . substr($keyAsId, 0, 20) . "...' needs both our secret key and the other party's public key",
+		);
 	}
 
 
