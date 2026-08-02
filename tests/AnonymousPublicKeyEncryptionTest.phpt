@@ -66,8 +66,8 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 		$this->publicKeys = [];
 		foreach ([self::INACTIVE_KEY, self::ACTIVE_KEY] as $id) {
 			$keyPair = sodium_crypto_box_keypair();
-			$this->secretKeys[$id] = self::KEY_PREFIX . '_secret_' . bin2hex(sodium_crypto_box_secretkey($keyPair));
-			$this->publicKeys[$id] = self::KEY_PREFIX . '_public_' . bin2hex(sodium_crypto_box_publickey($keyPair));
+			$this->secretKeys[$id] = self::KEY_PREFIX . '_secret_' . sodium_bin2hex(sodium_crypto_box_secretkey($keyPair));
+			$this->publicKeys[$id] = self::KEY_PREFIX . '_public_' . sodium_bin2hex(sodium_crypto_box_publickey($keyPair));
 		}
 		$this->encryption = new AnonymousPublicKeyEncryption($this->secretKeys, $this->publicKeys, self::ACTIVE_KEY, self::KEY_PREFIX);
 	}
@@ -491,7 +491,7 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 
 	public function testConstructorInvalidKeyLength(): void
 	{
-		$shortKey = bin2hex(random_bytes(16));
+		$shortKey = sodium_bin2hex(random_bytes(16));
 		$e = Assert::exception(
 			function () use ($shortKey): void {
 				new AnonymousPublicKeyEncryption(['short' => self::KEY_PREFIX . '_secret_' . $shortKey], [], 'short', self::KEY_PREFIX);
@@ -504,7 +504,7 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 		// The public keys array is validated the same way as the secret keys array
 		Assert::exception(
 			function (): void {
-				new AnonymousPublicKeyEncryption([], ['bytes31' => self::KEY_PREFIX . '_public_' . bin2hex(random_bytes(31))], 'bytes31', self::KEY_PREFIX);
+				new AnonymousPublicKeyEncryption([], ['bytes31' => self::KEY_PREFIX . '_public_' . sodium_bin2hex(random_bytes(31))], 'bytes31', self::KEY_PREFIX);
 			},
 			InvalidKeyLengthException::class,
 			"Key 'bytes31' must be 32 bytes (64 hexadecimal characters) but is 31 bytes",
@@ -514,7 +514,7 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 
 	public function testConstructorInvalidKeyEncoding(): void
 	{
-		$truncatedKey = substr(bin2hex(random_bytes(32)), 0, 63);
+		$truncatedKey = substr(sodium_bin2hex(random_bytes(32)), 0, 63);
 		$e = Assert::exception(
 			function () use ($truncatedKey): void {
 				new AnonymousPublicKeyEncryption(['truncated' => self::KEY_PREFIX . '_secret_' . $truncatedKey], [], 'truncated', self::KEY_PREFIX);

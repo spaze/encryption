@@ -22,7 +22,7 @@ Spaze\Encryption\SymmetricKeyEncryption::__construct(array $keys, string $active
 ```
 #### `array $keys`
 An array of encryption keys, a _key id_ (will be part of the encrypted string) as the array key, the prefixed _key_ (`prefix` + `_` + `[0-9A-F]{64}`) as the value.
-Generate your own encryption keys with for example `bin2hex(random_bytes(32))`.
+Generate your own encryption keys with for example `sodium_bin2hex(random_bytes(32))`.
 The constructor validates each key: the prefix must match, the key material must be valid hex, and it must decode to exactly 32 bytes (64 hexadecimal characters). The key id must be non-empty and must not contain `$`, because the id becomes part of the encrypted output format. A misconfigured key throws an exception at construction time, not on first use.
 
 #### `string $activeKeyId`
@@ -147,8 +147,8 @@ $encryption = new Spaze\Encryption\AuthenticatedPublicKeyEncryption($secretKeys,
 Each party generates their own pair, keeps the secret key to themselves and gives the public key to the other party:
 ```php
 $keyPair = sodium_crypto_box_keypair();
-$secretKey = 'adek_secret_' . bin2hex(sodium_crypto_box_secretkey($keyPair));
-$publicKey = 'adek_public_' . bin2hex(sodium_crypto_box_publickey($keyPair));
+$secretKey = 'adek_secret_' . sodium_bin2hex(sodium_crypto_box_secretkey($keyPair));
+$publicKey = 'adek_public_' . sodium_bin2hex(sodium_crypto_box_publickey($keyPair));
 ```
 
 ### Encrypt & decrypt
@@ -244,7 +244,7 @@ A file the service reads is a good fit if you want to keep the keys in a file: m
 
 YOU HAVE TO GENERATE YOUR OWN KEYS. You can use for example
 ```php
-bin2hex(random_bytes(32))
+sodium_bin2hex(random_bytes(32))
 ```
 to generate a key, then add the prefix. You can have multiple keys in each group (here we see two groups: `password` and `email`), meaning you will be able to decrypt data encrypted with these keys. Data will always be encrypted with what's defined in `activeKeyIds` section.
 

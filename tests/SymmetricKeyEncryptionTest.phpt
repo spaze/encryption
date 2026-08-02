@@ -68,8 +68,8 @@ class SymmetricKeyEncryptionTest extends TestCase
 	protected function setUp(): void
 	{
 		$this->keys = [
-			self::INACTIVE_KEY => self::KEY_PREFIX . '_' . bin2hex(random_bytes(32)),
-			self::ACTIVE_KEY => self::KEY_PREFIX . '_' . bin2hex(random_bytes(32)),
+			self::INACTIVE_KEY => self::KEY_PREFIX . '_' . sodium_bin2hex(random_bytes(32)),
+			self::ACTIVE_KEY => self::KEY_PREFIX . '_' . sodium_bin2hex(random_bytes(32)),
 		];
 		$this->encryption = new SymmetricKeyEncryption($this->keys, self::ACTIVE_KEY, self::KEY_PREFIX);
 	}
@@ -455,7 +455,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 		// An empty key id would produce '$$<ciphertext>' which the parser rejects
 		Assert::exception(
 			function (): void {
-				new SymmetricKeyEncryption(['' => self::KEY_PREFIX . '_' . bin2hex(random_bytes(32))], '', self::KEY_PREFIX);
+				new SymmetricKeyEncryption(['' => self::KEY_PREFIX . '_' . sodium_bin2hex(random_bytes(32))], '', self::KEY_PREFIX);
 			},
 			InvalidKeyIdException::class,
 			'Key id must not be empty',
@@ -463,7 +463,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 		// A key id with the separator would encrypt fine but produce output that can never be decrypted
 		Assert::exception(
 			function (): void {
-				new SymmetricKeyEncryption(['key$1' => self::KEY_PREFIX . '_' . bin2hex(random_bytes(32))], 'key$1', self::KEY_PREFIX);
+				new SymmetricKeyEncryption(['key$1' => self::KEY_PREFIX . '_' . sodium_bin2hex(random_bytes(32))], 'key$1', self::KEY_PREFIX);
 			},
 			InvalidKeyIdException::class,
 			"Key id 'key\$1' must not contain '\$'",
@@ -491,7 +491,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 	public function testConstructorNumericKeyId(): void
 	{
 		// PHP casts a numeric key id to an integer, the constructor has to cope with that and not just with strings
-		$keys = ['1' => self::KEY_PREFIX . '_' . bin2hex(random_bytes(32))];
+		$keys = ['1' => self::KEY_PREFIX . '_' . sodium_bin2hex(random_bytes(32))];
 		Assert::same([0 => 1], array_keys($keys)); // the id is an int now, there's no way to keep it a string
 		$encryption = new SymmetricKeyEncryption($keys, '1', self::KEY_PREFIX);
 		$encrypted = $encryption->encrypt(self::PLAINTEXT);
@@ -503,7 +503,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 
 	public function testConstructorInvalidKeyLength(): void
 	{
-		$shortKey = bin2hex(random_bytes(16));
+		$shortKey = sodium_bin2hex(random_bytes(16));
 		$e = Assert::exception(
 			function () use ($shortKey): void {
 				new SymmetricKeyEncryption(['short' => self::KEY_PREFIX . '_' . $shortKey], 'short', self::KEY_PREFIX);
@@ -515,7 +515,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 		Assert::notContains($shortKey, $e->getMessage());
 		Assert::exception(
 			function (): void {
-				new SymmetricKeyEncryption(['bytes31' => self::KEY_PREFIX . '_' . bin2hex(random_bytes(31))], 'bytes31', self::KEY_PREFIX);
+				new SymmetricKeyEncryption(['bytes31' => self::KEY_PREFIX . '_' . sodium_bin2hex(random_bytes(31))], 'bytes31', self::KEY_PREFIX);
 			},
 			InvalidKeyLengthException::class,
 			"Key 'bytes31' must be 32 bytes (64 hexadecimal characters) but is 31 bytes",
@@ -525,7 +525,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 
 	public function testConstructorInvalidKeyEncoding(): void
 	{
-		$truncatedKey = substr(bin2hex(random_bytes(32)), 0, 63);
+		$truncatedKey = substr(sodium_bin2hex(random_bytes(32)), 0, 63);
 		$e = Assert::exception(
 			function () use ($truncatedKey): void {
 				new SymmetricKeyEncryption(['truncated' => self::KEY_PREFIX . '_' . $truncatedKey], 'truncated', self::KEY_PREFIX);
@@ -544,7 +544,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 		// str_replace() used to strip all prefix occurrences silently, substr() removes only the leading one
 		Assert::exception(
 			function (): void {
-				new SymmetricKeyEncryption(['double' => self::KEY_PREFIX . '_' . self::KEY_PREFIX . '_' . bin2hex(random_bytes(32))], 'double', self::KEY_PREFIX);
+				new SymmetricKeyEncryption(['double' => self::KEY_PREFIX . '_' . self::KEY_PREFIX . '_' . sodium_bin2hex(random_bytes(32))], 'double', self::KEY_PREFIX);
 			},
 			InvalidKeyEncodingException::class,
 		);
@@ -552,7 +552,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 		// the symmetric class must never start interpreting the tags
 		Assert::exception(
 			function (): void {
-				new SymmetricKeyEncryption(['tagged' => self::KEY_PREFIX . '_secret_' . bin2hex(random_bytes(32))], 'tagged', self::KEY_PREFIX);
+				new SymmetricKeyEncryption(['tagged' => self::KEY_PREFIX . '_secret_' . sodium_bin2hex(random_bytes(32))], 'tagged', self::KEY_PREFIX);
 			},
 			InvalidKeyEncodingException::class,
 		);
