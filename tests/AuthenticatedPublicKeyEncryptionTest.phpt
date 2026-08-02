@@ -86,10 +86,10 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 		foreach ([self::INACTIVE_KEY, self::ACTIVE_KEY] as $id) {
 			$ourKeyPair = sodium_crypto_box_keypair();
 			$theirKeyPair = sodium_crypto_box_keypair();
-			$this->ourSecretKeys[$id] = self::KEY_PREFIX . '_secret_' . bin2hex(sodium_crypto_box_secretkey($ourKeyPair));
-			$this->ourPublicKeys[$id] = self::KEY_PREFIX . '_public_' . bin2hex(sodium_crypto_box_publickey($ourKeyPair));
-			$this->theirSecretKeys[$id] = self::KEY_PREFIX . '_secret_' . bin2hex(sodium_crypto_box_secretkey($theirKeyPair));
-			$this->theirPublicKeys[$id] = self::KEY_PREFIX . '_public_' . bin2hex(sodium_crypto_box_publickey($theirKeyPair));
+			$this->ourSecretKeys[$id] = self::KEY_PREFIX . '_secret_' . sodium_bin2hex(sodium_crypto_box_secretkey($ourKeyPair));
+			$this->ourPublicKeys[$id] = self::KEY_PREFIX . '_public_' . sodium_bin2hex(sodium_crypto_box_publickey($ourKeyPair));
+			$this->theirSecretKeys[$id] = self::KEY_PREFIX . '_secret_' . sodium_bin2hex(sodium_crypto_box_secretkey($theirKeyPair));
+			$this->theirPublicKeys[$id] = self::KEY_PREFIX . '_public_' . sodium_bin2hex(sodium_crypto_box_publickey($theirKeyPair));
 		}
 		$this->encryption = new AuthenticatedPublicKeyEncryption($this->ourSecretKeys, $this->theirPublicKeys, self::ACTIVE_KEY, self::KEY_PREFIX);
 	}
@@ -605,7 +605,7 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 
 	public function testConstructorInvalidKeyLength(): void
 	{
-		$shortKey = bin2hex(random_bytes(16));
+		$shortKey = sodium_bin2hex(random_bytes(16));
 		$e = Assert::exception(
 			function () use ($shortKey): void {
 				new AuthenticatedPublicKeyEncryption(['short' => self::KEY_PREFIX . '_secret_' . $shortKey], [], 'short', self::KEY_PREFIX);
@@ -618,7 +618,7 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 		// The public keys array is validated the same way as the secret keys array
 		Assert::exception(
 			function (): void {
-				new AuthenticatedPublicKeyEncryption($this->ourSecretKeys, [self::ACTIVE_KEY => self::KEY_PREFIX . '_public_' . bin2hex(random_bytes(31))], self::ACTIVE_KEY, self::KEY_PREFIX);
+				new AuthenticatedPublicKeyEncryption($this->ourSecretKeys, [self::ACTIVE_KEY => self::KEY_PREFIX . '_public_' . sodium_bin2hex(random_bytes(31))], self::ACTIVE_KEY, self::KEY_PREFIX);
 			},
 			InvalidKeyLengthException::class,
 			"Key 'dev2' must be 32 bytes (64 hexadecimal characters) but is 31 bytes",
@@ -628,7 +628,7 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 
 	public function testConstructorInvalidKeyEncoding(): void
 	{
-		$truncatedKey = substr(bin2hex(random_bytes(32)), 0, 63);
+		$truncatedKey = substr(sodium_bin2hex(random_bytes(32)), 0, 63);
 		$e = Assert::exception(
 			function () use ($truncatedKey): void {
 				new AuthenticatedPublicKeyEncryption(['truncated' => self::KEY_PREFIX . '_secret_' . $truncatedKey], [], 'truncated', self::KEY_PREFIX);
@@ -727,7 +727,7 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 
 	private function derivePublicKeyHex(string $secretKeyHex): string
 	{
-		return bin2hex(sodium_crypto_box_publickey_from_secretkey(sodium_hex2bin($secretKeyHex)));
+		return sodium_bin2hex(sodium_crypto_box_publickey_from_secretkey(sodium_hex2bin($secretKeyHex)));
 	}
 
 }

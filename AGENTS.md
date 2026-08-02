@@ -18,7 +18,7 @@ Breaking any of these is a bug even when all tests pass. When a change makes a t
 - **No key material in exception messages, traces, or object dumps.** Raw key bytes are held only in `HiddenString`, never in plain properties. Values repeated in messages that can come from stored data or from a mispasted config slot go through `LogSafeValue`. Parameters carrying keys or plaintext get `#[SensitiveParameter]`, including on private helper methods, because traces mask arguments per frame.
 - **Exception constructors are not public API**, change their parameters freely. The exception class names, the inheritance (related failures are empty subclasses inheriting the message), and the no-key-material guarantee are API.
 - **Validation happens in constructors**, not on first use: a misconfiguration fails at deploy time.
-- **Byte encoding in `src/` goes through the constant-time sodium functions** (`sodium_hex2bin()`, `sodium_bin2hex()`, `sodium_bin2base64()`), never `hex2bin()`/`bin2hex()`/`base64_*()`. The tests still use `bin2hex()` until planned linter rules land; don't add new uses anywhere.
+- **Byte encoding goes through the constant-time sodium functions** (`sodium_hex2bin()`, `sodium_bin2hex()`, `sodium_bin2base64()`), never `hex2bin()`/`bin2hex()`/`base64_*()`; PHPStan enforces this everywhere via the bundled `disallowed-non-timing-safe-calls.neon`.
 - **Verify claims about Halite and libsodium against `vendor/paragonie/halite` sources or a `php -r` experiment**, never from memory or secondhand docs.
 
 ## Conventions
