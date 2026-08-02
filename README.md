@@ -218,9 +218,9 @@ parameters:
     encryption:
         keys:
             passwordHash:
-                prod1: "phek_abadcafec15c..." # prefix _ [0-9A-F]{64}
+                prod1: "phek_abadcafec15c..." # prefix _ [0-9a-fA-F]{64}
             email:
-                prod1: "eek_cafebabe25da..." # prefix _ [0-9A-F]{64}
+                prod1: "eek_cafebabe25da..." # prefix _ [0-9a-fA-F]{64}
         activeKeyIds:
             passwordHash: prod1
             email: prod1
