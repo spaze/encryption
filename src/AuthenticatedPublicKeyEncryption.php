@@ -108,7 +108,7 @@ class AuthenticatedPublicKeyEncryption
 		[$secretKey, $publicKey] = $this->getKeyPair($this->activeKeyId);
 		$boundData = $this->buildBoundAdditionalData($this->activeKeyId, FormatMarker::AuthenticatedPublicKeyV1);
 		$cipherText = Crypto::encryptWithAD(new HiddenString($data), $secretKey, $publicKey, $boundData);
-		return $this->formatMarkedKeyCipherText($this->activeKeyId, FormatMarker::AuthenticatedPublicKeyV1, $cipherText);
+		return $this->formatKeyCipherText($this->activeKeyId, FormatMarker::AuthenticatedPublicKeyV1, $cipherText);
 	}
 
 
@@ -134,7 +134,7 @@ class AuthenticatedPublicKeyEncryption
 		[$secretKey, $publicKey] = $this->getKeyPair($this->activeKeyId);
 		$boundData = $this->buildBoundAdditionalData($this->activeKeyId, FormatMarker::AuthenticatedPublicKeyWithAdV1, $additionalData);
 		$cipherText = Crypto::encryptWithAD(new HiddenString($data), $secretKey, $publicKey, $boundData);
-		return $this->formatMarkedKeyCipherText($this->activeKeyId, FormatMarker::AuthenticatedPublicKeyWithAdV1, $cipherText);
+		return $this->formatKeyCipherText($this->activeKeyId, FormatMarker::AuthenticatedPublicKeyWithAdV1, $cipherText);
 	}
 
 
@@ -156,14 +156,14 @@ class AuthenticatedPublicKeyEncryption
 	 */
 	public function decrypt(string $data): string
 	{
-		[$keyId, $marker, $cipherText] = $this->parseMarkedKeyCipherText($data);
-		$this->checkFormatMarker($marker, FormatMarker::AuthenticatedPublicKeyV1);
+		[$keyId, $marker, $cipherText] = $this->parseKeyCipherText($data);
+		$validMarker = $this->checkFormatMarker($marker, FormatMarker::AuthenticatedPublicKeyV1);
 		[$secretKey, $publicKey] = $this->getKeyPair($keyId);
-		if ($marker === null) {
+		if ($validMarker === null) {
 			// Data from before the marker existed, nothing was added to what the decryption verifies back then
 			return Crypto::decrypt($cipherText, $secretKey, $publicKey)->getString();
 		}
-		$boundData = $this->buildBoundAdditionalData($keyId, FormatMarker::AuthenticatedPublicKeyV1);
+		$boundData = $this->buildBoundAdditionalData($keyId, $validMarker);
 		return Crypto::decryptWithAD($cipherText, $secretKey, $publicKey, $boundData)->getString();
 	}
 
@@ -190,14 +190,14 @@ class AuthenticatedPublicKeyEncryption
 		if ($additionalData === '') {
 			throw new DecryptWithAdNeedsAdditionalDataException();
 		}
-		[$keyId, $marker, $cipherText] = $this->parseMarkedKeyCipherText($data);
-		$this->checkFormatMarker($marker, FormatMarker::AuthenticatedPublicKeyWithAdV1);
+		[$keyId, $marker, $cipherText] = $this->parseKeyCipherText($data);
+		$validMarker = $this->checkFormatMarker($marker, FormatMarker::AuthenticatedPublicKeyWithAdV1);
 		[$secretKey, $publicKey] = $this->getKeyPair($keyId);
-		if ($marker === null) {
+		if ($validMarker === null) {
 			// Data from before the marker existed, the additional data was used alone back then
 			return Crypto::decryptWithAD($cipherText, $secretKey, $publicKey, $additionalData)->getString();
 		}
-		$boundData = $this->buildBoundAdditionalData($keyId, FormatMarker::AuthenticatedPublicKeyWithAdV1, $additionalData);
+		$boundData = $this->buildBoundAdditionalData($keyId, $validMarker, $additionalData);
 		return Crypto::decryptWithAD($cipherText, $secretKey, $publicKey, $boundData)->getString();
 	}
 

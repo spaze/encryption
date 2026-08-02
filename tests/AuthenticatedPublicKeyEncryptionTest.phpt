@@ -166,12 +166,12 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 		$encryptedWithAd = $this->encryption->encryptWithAd(self::PLAINTEXT, 'context');
 		Assert::exception(function () use ($encryptedWithAd) {
 			$this->encryption->decrypt($encryptedWithAd);
-		}, FormatMarkerMismatchException::class, 'Data was encrypted with AuthenticatedPublicKeyEncryption::encryptWithAd(), decrypt it there with decryptWithAd()');
+		}, FormatMarkerMismatchException::class, 'Data was encrypted with AuthenticatedPublicKeyEncryption::encryptWithAd(), decrypt it with AuthenticatedPublicKeyEncryption::decryptWithAd()');
 
 		$encrypted = $this->encryption->encrypt(self::PLAINTEXT);
 		Assert::exception(function () use ($encrypted) {
 			$this->encryption->decryptWithAd($encrypted, 'context');
-		}, FormatMarkerMismatchException::class, 'Data was encrypted with AuthenticatedPublicKeyEncryption::encrypt(), decrypt it there with decrypt()');
+		}, FormatMarkerMismatchException::class, 'Data was encrypted with AuthenticatedPublicKeyEncryption::encrypt(), decrypt it with AuthenticatedPublicKeyEncryption::decrypt()');
 
 		// Values without the marker have no such protection and fail only when the decryption itself does
 		$fixtureEncryption = $this->createFixtureEncryption();
@@ -223,13 +223,20 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 
 	public function testFormatMarkerMismatch(): void
 	{
-		// A value created by the other class names its creator instead of failing with a misleading decryption error
+		// A value created by another class names its creator instead of failing with a misleading decryption error
 		Assert::exception(
 			function (): void {
 				$this->encryption->decrypt('$' . self::ACTIVE_KEY . '$AnonV1$vJpOCa5fgshA9i4tKlRhW0OX6xd5iZeI');
 			},
 			FormatMarkerMismatchException::class,
-			'Data was encrypted with AnonymousPublicKeyEncryption, decrypt it there',
+			'Data was encrypted with AnonymousPublicKeyEncryption, decrypt it with AnonymousPublicKeyEncryption::decrypt()',
+		);
+		Assert::exception(
+			function (): void {
+				$this->encryption->decrypt('$' . self::ACTIVE_KEY . '$SymV1$MUIFAwhatever');
+			},
+			FormatMarkerMismatchException::class,
+			'Data was encrypted with SymmetricKeyEncryption::encrypt(), decrypt it with SymmetricKeyEncryption::decrypt()',
 		);
 	}
 
@@ -241,7 +248,7 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 				$this->encryption->needsReEncrypt('$' . self::ACTIVE_KEY . '$AuthV9$whatever');
 			},
 			UnknownFormatMarkerException::class,
-			"Unknown format marker 'AuthV9', was the data encrypted by a newer version of this library?",
+			"Unknown format marker 'AuthV9', is the data corrupted, or encrypted by a newer version of this library?",
 		);
 		// The marker comes from stored data, so a tampered value must not push arbitrary bytes into logs
 		$e = Assert::exception(
@@ -249,7 +256,7 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 				$this->encryption->needsReEncrypt('$' . self::ACTIVE_KEY . '$' . "bad\nmarker" . '$whatever');
 			},
 			UnknownFormatMarkerException::class,
-			"Unknown format marker 'bad?marker', was the data encrypted by a newer version of this library?",
+			"Unknown format marker 'bad?marker', is the data corrupted, or encrypted by a newer version of this library?",
 		);
 		assert($e instanceof UnknownFormatMarkerException);
 		Assert::notContains("\n", $e->getMessage());
@@ -258,7 +265,7 @@ class AuthenticatedPublicKeyEncryptionTest extends TestCase
 				$this->encryption->needsReEncrypt('$' . self::ACTIVE_KEY . '$' . str_repeat('x', 100) . '$whatever');
 			},
 			UnknownFormatMarkerException::class,
-			"Unknown format marker '" . str_repeat('x', 20) . "...', was the data encrypted by a newer version of this library?",
+			"Unknown format marker '" . str_repeat('x', 20) . "...', is the data corrupted, or encrypted by a newer version of this library?",
 		);
 	}
 

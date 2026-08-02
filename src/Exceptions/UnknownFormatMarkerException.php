@@ -12,7 +12,7 @@ class UnknownFormatMarkerException extends OutOfBoundsException
 
 	public function __construct(string $marker, ?Throwable $previous = null)
 	{
-		parent::__construct("Unknown format marker '" . LogSafeValue::from($marker) . "', was the data encrypted by a newer version of this library?", previous: $previous);
+		parent::__construct("Unknown format marker '" . LogSafeValue::from($marker) . "', is the data corrupted, or encrypted by a newer version of this library?", previous: $previous);
 	}
 
 }

@@ -12,5 +12,7 @@ enum FormatMarker: string
 	case AuthenticatedPublicKeyV1 = 'AuthV1';
 	case AuthenticatedPublicKeyWithAdV1 = 'AuthAdV1';
 	case AnonymousPublicKeyV1 = 'AnonV1';
+	case SymmetricKeyV1 = 'SymV1';
+	case SymmetricKeyWithAdV1 = 'SymAdV1';
 
 }
