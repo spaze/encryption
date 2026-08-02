@@ -21,7 +21,7 @@ The library is framework-agnostic, with minimal dependencies.
 Spaze\Encryption\SymmetricKeyEncryption::__construct(array $keys, string $activeKeyId, string $keyPrefix)
 ```
 #### `array $keys`
-An array of encryption keys, a _key id_ (will be part of the encrypted string) as the array key, the prefixed _key_ (`prefix` + `_` + `[0-9A-F]{64}`) as the value.
+An array of encryption keys, a _key id_ (will be part of the encrypted string) as the array key, the prefixed _key_ (`prefix` + `_` + `[0-9a-fA-F]{64}`) as the value.
 Generate your own encryption keys with for example `sodium_bin2hex(random_bytes(32))`.
 The constructor validates each key: the prefix must match, the key material must be valid hex, and it must decode to exactly 32 bytes (64 hexadecimal characters). The key id must be non-empty and must not contain `$`, because the id becomes part of the encrypted output format. A misconfigured key throws an exception at construction time, not on first use.
 
