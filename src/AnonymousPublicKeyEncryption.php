@@ -98,7 +98,7 @@ class AnonymousPublicKeyEncryption
 	{
 		// The constructor guarantees the active key id has a public key, configured or derived
 		$cipherText = Crypto::seal(new HiddenString($data), new EncryptionPublicKey($this->publicKeys[$this->activeKeyId]));
-		return $this->formatMarkedKeyCipherText($this->activeKeyId, FormatMarker::AnonymousPublicKeyV1, $cipherText);
+		return $this->formatKeyCipherText($this->activeKeyId, FormatMarker::AnonymousPublicKeyV1, $cipherText);
 	}
 
 
@@ -120,7 +120,7 @@ class AnonymousPublicKeyEncryption
 	 */
 	public function decrypt(string $data): string
 	{
-		[$keyId, $marker, $cipherText] = $this->parseMarkedKeyCipherText($data);
+		[$keyId, $marker, $cipherText] = $this->parseKeyCipherText($data);
 		$this->checkFormatMarker($marker, FormatMarker::AnonymousPublicKeyV1);
 		return Crypto::unseal($cipherText, $this->getSecretKey($keyId))->getString();
 	}

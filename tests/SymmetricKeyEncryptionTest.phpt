@@ -7,12 +7,16 @@ namespace Spaze\Encryption;
 use OutOfBoundsException;
 use OutOfRangeException;
 use ParagonIE\Halite\Alerts\InvalidMessage;
+use ParagonIE\Halite\Symmetric\Crypto;
+use ParagonIE\Halite\Symmetric\EncryptionKey;
+use ParagonIE\HiddenString\HiddenString;
 use ReflectionMethod;
 use SensitiveParameter;
 use SodiumException;
 use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
 use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
+use Spaze\Encryption\Exceptions\FormatMarkerMismatchException;
 use Spaze\Encryption\Exceptions\InvalidCipherTextFormatException;
 use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
 use Spaze\Encryption\Exceptions\InvalidKeyIdException;
@@ -21,6 +25,7 @@ use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\MissingKeyPrefixException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
+use Spaze\Encryption\Exceptions\UnknownFormatMarkerException;
 use Tester\Assert;
 use Tester\TestCase;
 
@@ -46,9 +51,13 @@ class SymmetricKeyEncryptionTest extends TestCase
 
 	private const FIXTURE_AD = 'context';
 
-	private const FIXTURE_CIPHERTEXT = '$fixture$MUIFAFMn4bpPdCBV2amSVcLrvBf1a1wlFG_tchfj5GtWwmmYjSYoE7xC5eDbsBMUQ-DbSPW6SPDEJWsef_i2QSXASoOORvWozIIBAXs-Cpsu0kx4ANL81yzSKM8YR9_MqW9RcIpzu6YVYZNXz5DadkJcc8R52YrAr34i7K3QTyNPEg==';
+	private const FIXTURE_CIPHERTEXT = '$fixture$SymV1$MUIFAHuQ7obWmIZ-e64OVH8PXwOKhp7o3tQkPWGsQB3qtu50Fhnn94ccFVV2BzJvGbxUyHXPBfdC4hNVLguO8ew0VJZTnu8K9Z2S9puYll9gDmFqA2UHmURJlpXN-SLEKt8Rz3MsIZDDbS5IF8TQTuYUy13PHjWeMcxWaB7Omkl0sQ==';
 
-	private const FIXTURE_CIPHERTEXT_WITH_AD = '$fixture$MUIFABiOZSY_QL4thZ54sv63zb5raG13LwzEmr2cZzHmRC0Au_YlTdbj0756cedYIm1LhiGHspLw-nlxRhBUq3iDOto2fzaQ5QZtYNRwFEGiZfa-6cp3tjOzn8dAtHZ8H-24w-f0RasPgi4Ir_2OXBvG7qWFyrfgm2h_htarJtvE_w==';
+	private const FIXTURE_CIPHERTEXT_WITH_AD = '$fixture$SymAdV1$MUIFAO93FxYXZ9mmN2jmmz8F9GnuiHazJYE49Es_QUb5wRDVPqedn7HElHzf9nR69XhRD6kPnOQp0wDIc996rIzcT0URzJWfU-K73ZUAuI8AqZsDzq87WeGYHkr2WZb6MpbBvz9cKvztnNXvBXQXele98XNCpzCmCT5uQfrAK6HWcw==';
+
+	private const LEGACY_FIXTURE_CIPHERTEXT = '$fixture$MUIFAFMn4bpPdCBV2amSVcLrvBf1a1wlFG_tchfj5GtWwmmYjSYoE7xC5eDbsBMUQ-DbSPW6SPDEJWsef_i2QSXASoOORvWozIIBAXs-Cpsu0kx4ANL81yzSKM8YR9_MqW9RcIpzu6YVYZNXz5DadkJcc8R52YrAr34i7K3QTyNPEg==';
+
+	private const LEGACY_FIXTURE_CIPHERTEXT_WITH_AD = '$fixture$MUIFABiOZSY_QL4thZ54sv63zb5raG13LwzEmr2cZzHmRC0Au_YlTdbj0756cedYIm1LhiGHspLw-nlxRhBUq3iDOto2fzaQ5QZtYNRwFEGiZfa-6cp3tjOzn8dAtHZ8H-24w-f0RasPgi4Ir_2OXBvG7qWFyrfgm2h_htarJtvE_w==';
 
 	/** @var array<string, string> */
 	private array $keys;
@@ -74,12 +83,27 @@ class SymmetricKeyEncryptionTest extends TestCase
 
 	public function testDecryptStoredCipherText(): void
 	{
-		// Encrypted with a previous release and kept verbatim, because the output of this library is stored
-		// in databases: anything that changes the format or the key handling has to fail here first
-		$encryption = new SymmetricKeyEncryption([self::FIXTURE_KEY_ID => self::FIXTURE_KEY], self::FIXTURE_KEY_ID, self::KEY_PREFIX);
+		// Generated once when the marked format was added and kept verbatim, because the output of this library
+		// is stored in databases: anything that changes the format or the key handling has to fail here first
+		$encryption = $this->createFixtureEncryption();
 		Assert::same(self::PLAINTEXT, $encryption->decrypt(self::FIXTURE_CIPHERTEXT));
 		Assert::same(self::PLAINTEXT, $encryption->decryptWithAd(self::FIXTURE_CIPHERTEXT_WITH_AD, self::FIXTURE_AD));
 		Assert::false($encryption->needsReEncrypt(self::FIXTURE_CIPHERTEXT));
+		Assert::false($encryption->needsReEncrypt(self::FIXTURE_CIPHERTEXT_WITH_AD));
+		Assert::same('$fixture$SymV1$MUIFA', substr(self::FIXTURE_CIPHERTEXT, 0, 20));
+		Assert::same('$fixture$SymAdV1$MUIFA', substr(self::FIXTURE_CIPHERTEXT_WITH_AD, 0, 22));
+	}
+
+
+	public function testDecryptStoredLegacyCipherText(): void
+	{
+		// Values in the format without the marker, written by all the previous releases, have to keep decrypting,
+		// and needsReEncrypt() reports them so a re-encryption sweep migrates them to the marked format
+		$encryption = $this->createFixtureEncryption();
+		Assert::same(self::PLAINTEXT, $encryption->decrypt(self::LEGACY_FIXTURE_CIPHERTEXT));
+		Assert::same(self::PLAINTEXT, $encryption->decryptWithAd(self::LEGACY_FIXTURE_CIPHERTEXT_WITH_AD, self::FIXTURE_AD));
+		Assert::true($encryption->needsReEncrypt(self::LEGACY_FIXTURE_CIPHERTEXT));
+		Assert::true($encryption->needsReEncrypt(self::LEGACY_FIXTURE_CIPHERTEXT_WITH_AD));
 	}
 
 
@@ -101,15 +125,154 @@ class SymmetricKeyEncryptionTest extends TestCase
 
 	public function testPairingFails(): void
 	{
+		// New values carry the marker, so mixing up the methods is caught by this library with a message
+		// that says what to call, before the decryption itself would fail
 		$encryptedWithAd = $this->encryption->encryptWithAd(self::PLAINTEXT, 'context');
 		Assert::exception(function () use ($encryptedWithAd) {
 			$this->encryption->decrypt($encryptedWithAd);
-		}, InvalidMessage::class);
+		}, FormatMarkerMismatchException::class, 'Data was encrypted with SymmetricKeyEncryption::encryptWithAd(), decrypt it with SymmetricKeyEncryption::decryptWithAd()');
 
 		$encrypted = $this->encryption->encrypt(self::PLAINTEXT);
 		Assert::exception(function () use ($encrypted) {
 			$this->encryption->decryptWithAd($encrypted, 'context');
+		}, FormatMarkerMismatchException::class, 'Data was encrypted with SymmetricKeyEncryption::encrypt(), decrypt it with SymmetricKeyEncryption::decrypt()');
+
+		// Values without the marker have no such protection and fail only when the decryption itself does
+		$fixtureEncryption = $this->createFixtureEncryption();
+		Assert::exception(function () use ($fixtureEncryption) {
+			$fixtureEncryption->decrypt(self::LEGACY_FIXTURE_CIPHERTEXT_WITH_AD);
 		}, InvalidMessage::class);
+		Assert::exception(function () use ($fixtureEncryption) {
+			$fixtureEncryption->decryptWithAd(self::LEGACY_FIXTURE_CIPHERTEXT, self::FIXTURE_AD);
+		}, InvalidMessage::class);
+	}
+
+
+	public function testKeyIdTamperingDetected(): void
+	{
+		// The key id and the marker go into what the decryption verifies. With every id mapping
+		// to a different key a flipped id fails anyway, so the test uses the same key under two ids
+		// (which the docs forbid) to prove the id itself is verified, not just the key it selects
+		$encryption = new SymmetricKeyEncryption(
+			['key1' => $this->keys[self::ACTIVE_KEY], 'key2' => $this->keys[self::ACTIVE_KEY]],
+			'key1',
+			self::KEY_PREFIX,
+		);
+		$tampered = str_replace('$key1$', '$key2$', $encryption->encrypt(self::PLAINTEXT));
+		Assert::exception(
+			function () use ($encryption, $tampered): void {
+				$encryption->decrypt($tampered);
+			},
+			InvalidMessage::class,
+		);
+		$tamperedWithAd = str_replace('$key1$', '$key2$', $encryption->encryptWithAd(self::PLAINTEXT, 'context'));
+		Assert::exception(
+			function () use ($encryption, $tamperedWithAd): void {
+				$encryption->decryptWithAd($tamperedWithAd, 'context');
+			},
+			InvalidMessage::class,
+		);
+	}
+
+
+	public function testMarkerStrippingDetected(): void
+	{
+		// Rewriting a marked value into the older format must not decrypt it as if it were genuine old data:
+		// the marker went into what the decryption verifies, so the downgrade fails there, not in the parser
+		$stripped = str_replace('$SymV1$', '$', $this->encryption->encrypt(self::PLAINTEXT));
+		Assert::exception(function () use ($stripped): void {
+			$this->encryption->decrypt($stripped);
+		}, InvalidMessage::class);
+
+		$strippedWithAd = str_replace('$SymAdV1$', '$', $this->encryption->encryptWithAd(self::PLAINTEXT, 'context'));
+		Assert::exception(function () use ($strippedWithAd): void {
+			$this->encryption->decryptWithAd($strippedWithAd, 'context');
+		}, InvalidMessage::class);
+	}
+
+
+	public function testMarkerForgingDetected(): void
+	{
+		// The opposite direction: a genuine old-format value rewritten into the marked format must not decrypt
+		// either, old values were encrypted without the key id and the marker in what the decryption verifies
+		$encryption = $this->createFixtureEncryption();
+		$forged = str_replace('$fixture$', '$fixture$SymV1$', self::LEGACY_FIXTURE_CIPHERTEXT);
+		Assert::exception(function () use ($encryption, $forged): void {
+			$encryption->decrypt($forged);
+		}, InvalidMessage::class);
+
+		$forgedWithAd = str_replace('$fixture$', '$fixture$SymAdV1$', self::LEGACY_FIXTURE_CIPHERTEXT_WITH_AD);
+		Assert::exception(function () use ($encryption, $forgedWithAd): void {
+			$encryption->decryptWithAd($forgedWithAd, self::FIXTURE_AD);
+		}, InvalidMessage::class);
+	}
+
+
+	public function testMarkerSwapDetected(): void
+	{
+		// Swapping the two symmetric markers makes the value acceptable to the other method's marker check,
+		// so the rejection has to happen during the decryption itself; that the marker alone is enough
+		// to make it fail is pinned separately by testBoundAdditionalDataRecipe()
+		$swapped = str_replace('$SymV1$', '$SymAdV1$', $this->encryption->encrypt(self::PLAINTEXT));
+		Assert::exception(function () use ($swapped): void {
+			$this->encryption->decryptWithAd($swapped, 'context');
+		}, InvalidMessage::class);
+
+		$swappedWithAd = str_replace('$SymAdV1$', '$SymV1$', $this->encryption->encryptWithAd(self::PLAINTEXT, 'context'));
+		Assert::exception(function () use ($swappedWithAd): void {
+			$this->encryption->decrypt($swappedWithAd);
+		}, InvalidMessage::class);
+	}
+
+
+	public function testBoundAdditionalDataRecipe(): void
+	{
+		// The README documents the verified value so the data can be decrypted with Halite directly,
+		// and this rebuilds it exactly as described there: the recipe can never change unnoticed.
+		// The wrong-marker attempt proves the marker itself is part of what the decryption verifies
+		$key = new EncryptionKey(new HiddenString(sodium_hex2bin(substr(self::FIXTURE_KEY, strlen(self::KEY_PREFIX . '_')))));
+		$cipherText = substr(self::FIXTURE_CIPHERTEXT_WITH_AD, strlen('$' . self::FIXTURE_KEY_ID . '$SymAdV1$'));
+		$boundData = sprintf(
+			'{"keyId":"%s","marker":"SymAdV1","additionalData":"%s"}',
+			sodium_bin2base64(self::FIXTURE_KEY_ID, SODIUM_BASE64_VARIANT_URLSAFE),
+			sodium_bin2base64(self::FIXTURE_AD, SODIUM_BASE64_VARIANT_URLSAFE),
+		);
+		Assert::same(self::PLAINTEXT, Crypto::decryptWithAD($cipherText, $key, $boundData)->getString());
+		Assert::exception(function () use ($cipherText, $key, $boundData): void {
+			Crypto::decryptWithAD($cipherText, $key, str_replace('SymAdV1', 'SymV1', $boundData));
+		}, InvalidMessage::class);
+	}
+
+
+	public function testFormatMarkerMismatch(): void
+	{
+		// A value created by another class names its creator instead of failing with a misleading decryption error
+		Assert::exception(
+			function (): void {
+				$this->encryption->decrypt('$' . self::ACTIVE_KEY . '$AnonV1$vJpOCa5fgshA9i4tKlRhW0OX6xd5iZeI');
+			},
+			FormatMarkerMismatchException::class,
+			'Data was encrypted with AnonymousPublicKeyEncryption, decrypt it with AnonymousPublicKeyEncryption::decrypt()',
+		);
+		Assert::exception(
+			function (): void {
+				$this->encryption->decrypt('$' . self::ACTIVE_KEY . '$AuthV1$MUIFAwhatever');
+			},
+			FormatMarkerMismatchException::class,
+			'Data was encrypted with AuthenticatedPublicKeyEncryption::encrypt(), decrypt it with AuthenticatedPublicKeyEncryption::decrypt()',
+		);
+	}
+
+
+	public function testUnknownFormatMarker(): void
+	{
+		Assert::exception(
+			function (): void {
+				$this->encryption->needsReEncrypt('$' . self::ACTIVE_KEY . '$SymV9$whatever');
+			},
+			UnknownFormatMarkerException::class,
+			"Unknown format marker 'SymV9', is the data corrupted, or encrypted by a newer version of this library?",
+		);
 	}
 
 
@@ -186,7 +349,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 				(new SymmetricKeyEncryption($this->keys, self::ACTIVE_KEY, self::KEY_PREFIX))->decrypt($invalidData);
 			},
 			InvalidCipherTextFormatException::class,
-			"Data format must be '\$keyId\$ciphertext'",
+			"Data format must be '\$keyId\$marker\$ciphertext' or '\$keyId\$ciphertext'",
 		);
 		Assert::type(OutOfBoundsException::class, $e);
 		Assert::exception(
@@ -207,9 +370,11 @@ class SymmetricKeyEncryptionTest extends TestCase
 			['nothing'],
 			[''],
 			['$keyId'],
-			['$key$ciphertext$whatsDiz'],
+			['$keyId$marker$ciphertext$whatsDiz'],
 			['garbage$keyId$ciphertext'],
 			['$keyId$'],
+			['$keyId$marker$'],
+			['$$marker$ciphertext'],
 			['$$ciphertext'],
 			['$$'],
 		];
@@ -223,7 +388,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 				$this->encryption->decrypt('nothing');
 			},
 			InvalidNumberOfComponentsException::class,
-			"Data format must be '\$keyId\$ciphertext'",
+			"Data format must be '\$keyId\$marker\$ciphertext' or '\$keyId\$ciphertext'",
 		);
 		Assert::type(InvalidCipherTextFormatException::class, $e);
 		Assert::type(OutOfBoundsException::class, $e);
@@ -330,7 +495,7 @@ class SymmetricKeyEncryptionTest extends TestCase
 		Assert::same([0 => 1], array_keys($keys)); // the id is an int now, there's no way to keep it a string
 		$encryption = new SymmetricKeyEncryption($keys, '1', self::KEY_PREFIX);
 		$encrypted = $encryption->encrypt(self::PLAINTEXT);
-		Assert::same('$1$', substr($encrypted, 0, 3));
+		Assert::same('$1$SymV1$', substr($encrypted, 0, 9));
 		Assert::same(self::PLAINTEXT, $encryption->decrypt($encrypted));
 		Assert::false($encryption->needsReEncrypt($encrypted));
 	}
@@ -427,6 +592,12 @@ class SymmetricKeyEncryptionTest extends TestCase
 				$e = $e->getPrevious();
 			}
 		}
+	}
+
+
+	private function createFixtureEncryption(): SymmetricKeyEncryption
+	{
+		return new SymmetricKeyEncryption([self::FIXTURE_KEY_ID => self::FIXTURE_KEY], self::FIXTURE_KEY_ID, self::KEY_PREFIX);
 	}
 
 

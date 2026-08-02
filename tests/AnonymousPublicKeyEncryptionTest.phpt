@@ -130,13 +130,20 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 
 	public function testFormatMarkerMismatch(): void
 	{
-		// A value created by the other class names its creator instead of failing with a misleading decryption error
+		// A value created by another class names its creator instead of failing with a misleading decryption error
 		Assert::exception(
 			function (): void {
 				$this->encryption->decrypt('$' . self::ACTIVE_KEY . '$AuthV1$MUIFAwhatever');
 			},
 			FormatMarkerMismatchException::class,
-			'Data was encrypted with AuthenticatedPublicKeyEncryption::encrypt(), decrypt it there with decrypt()',
+			'Data was encrypted with AuthenticatedPublicKeyEncryption::encrypt(), decrypt it with AuthenticatedPublicKeyEncryption::decrypt()',
+		);
+		Assert::exception(
+			function (): void {
+				$this->encryption->decrypt('$' . self::ACTIVE_KEY . '$SymAdV1$MUIFAwhatever');
+			},
+			FormatMarkerMismatchException::class,
+			'Data was encrypted with SymmetricKeyEncryption::encryptWithAd(), decrypt it with SymmetricKeyEncryption::decryptWithAd()',
 		);
 	}
 
@@ -148,7 +155,7 @@ class AnonymousPublicKeyEncryptionTest extends TestCase
 				$this->encryption->needsReEncrypt('$' . self::ACTIVE_KEY . '$AnonV9$whatever');
 			},
 			UnknownFormatMarkerException::class,
-			"Unknown format marker 'AnonV9', was the data encrypted by a newer version of this library?",
+			"Unknown format marker 'AnonV9', is the data corrupted, or encrypted by a newer version of this library?",
 		);
 	}
 

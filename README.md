@@ -48,11 +48,15 @@ $encryption = new Spaze\Encryption\SymmetricKeyEncryption($keys, $activeKeyId, $
 ```php
 Spaze\Encryption\SymmetricKeyEncryption::encrypt(string $data): string
 ```
-The output will be formatted as `$<keyId>$<base64 ciphertext>`, for example `$key2$MUI...`, where `<keyId>` (`key2`) is the active key id set in the constructor. Store the whole value, don't parse it.
+The output will be formatted as `$<keyId>$SymV1$<base64 ciphertext>`, for example `$key2$SymV1$MUI...`, where `<keyId>` (`key2`) is the active key id set in the constructor. Store the whole value, don't parse it.
 
-The key id in the output is a hint that selects the decryption key. It is the only part of the output not protected against tampering, even by `encryptWithAd()`: changing the encrypted part makes decryption fail, while changing the key id just makes decryption try a different key, and fail because the key is different. Never configure the same key under two different ids.
+The marker between the key id and the encrypted part says what created the value: feeding an `encryptWithAd()` value (marked `SymAdV1`) to `decrypt()`, or a value from a different class to this one, fails with an exception that says what to call instead. The markers can never change; a future format change would introduce new marker values, so the digit works as a format version.
 
-This method does not use any context binding (Additional Authenticated Data). Use `encryptWithAd()` if you want to bind the ciphertext to a specific context.
+The key id and the marker are protected against tampering: both go into what decryption verifies, so changing either of them in a stored value makes decryption fail. (The verified value is `{"keyId":"<base64>","marker":"<the marker from the stored value>"}` — so `SymV1` or `SymAdV1` — with an `"additionalData":"<base64>"` member added by `encryptWithAd()`; Base64 being the URL-safe kind with padding. This only matters if you ever need to decrypt the data with Halite directly, without this library.)
+
+Values in the older format without the marker, `$<keyId>$<base64 ciphertext>`, written by previous versions, still decrypt. Their key id is not protected against tampering though: changing it just makes decryption try a different key, and fail because the key is different — so for them, never configure the same key under two different ids. Versions without marker support cannot read the marked values, so when multiple deployments share the data, upgrade all of them before writing anything new.
+
+This method does not bind the ciphertext to a context of your own. Use `encryptWithAd()` if you want that.
 
 Example:
 ```php
@@ -100,9 +104,11 @@ Unless you remove the old key, it will be possible to decrypt data encrypted wit
 You can then take all the data encrypted with the old key and re-encrypt them just to change the key which was used to encrypt them.
 Once done you can delete the old key.
 
-You can use `needsReEncrypt($ciphertext): bool` to see if the data is encrypted with an inactive key and thus should be re-encrypted with the currently active one.
+You can use `needsReEncrypt($ciphertext): bool` to see if the data is encrypted with an inactive key and thus should be re-encrypted with the currently active one. It also returns true for values stored in the [older format](#encrypt) without the marker, so the same re-encryption sweep migrates them to the marked format.
 
-When rotating, always generate a fresh key for the new key id. The key id in the encrypted output is not protected against tampering (see [Encrypt](#encrypt)), so two different key ids must never point to the same key.
+Values created by `encryptWithAd()` have to be re-encrypted with `decryptWithAd()` and `encryptWithAd()`, using the same additional data the row was encrypted with. Marked values say which method created them, values in the older format don't, so a sweep over old data has to know on its own which rows are context-bound and what their context is.
+
+When rotating, always generate a fresh key for the new key id. In values written in the older format the key id is not protected against tampering (see [Encrypt](#encrypt)), so two different key ids must never point to the same key.
 
 ## Encryption between two parties
 
@@ -150,9 +156,9 @@ The methods are the same as in `SymmetricKeyEncryption`: `encrypt()`, `decrypt()
 
 The output looks like `$<keyId>$AuthV1$<base64 ciphertext>`, or `$<keyId>$AuthAdV1$<...>` when created by `encryptWithAd()`. The marker between the key id and the encrypted part says what created the value: feeding an `encryptWithAd()` value to `decrypt()`, or a value from a different class to this one, fails with an exception that says what to call instead. The markers can never change; a future format change would introduce new marker values, so the digit works as a format version.
 
-Unlike in `SymmetricKeyEncryption`, the key id and the marker are protected against tampering: both go into what decryption verifies, so changing either of them in a stored value makes decryption fail. (The verified value is `{"keyId":"<base64>","marker":"<the marker from the stored value>"}` — so `AuthV1` or `AuthAdV1` — with an `"additionalData":"<base64>"` member added by `encryptWithAd()`; Base64 being the URL-safe kind with padding. This only matters if you ever need to decrypt the data with Halite directly, without this library.)
+Like in `SymmetricKeyEncryption`, the key id and the marker are protected against tampering: both go into what decryption verifies, so changing either of them in a stored value makes decryption fail. (The verified value is built [the same way as in `SymmetricKeyEncryption`](#encrypt), with `AuthV1` or `AuthAdV1` as the marker.)
 
-Values in the older format without the marker — for example written by a previous library that used the same format — still decrypt, though their key id keeps the [old caveat](#encrypt), and `needsReEncrypt()` returns true for them, so a usual re-encryption sweep migrates them to the marked format.
+Values in the older format without the marker — for example written by a previous library that used the same format — still decrypt, though their key id is not protected against tampering, and `needsReEncrypt()` returns true for them, so a usual re-encryption sweep migrates them to the marked format.
 
 One thing deserves a special mention: a configuration with the two keys accidentally swapped can still encrypt and decrypt its own data just fine, only the data from the other party will fail to decrypt. When setting up, always verify by decrypting a value the other party encrypted, not one you encrypted yourself.
 
@@ -191,12 +197,12 @@ $encryption = new Spaze\Encryption\AnonymousPublicKeyEncryption(['key1' => 'adek
 ### Encrypt & decrypt
 `encrypt()`, `decrypt()` and `needsReEncrypt()` work like in the other two classes, but there are no `encryptWithAd()`/`decryptWithAd()` methods, this flavor cannot bind the encrypted value to a context.
 
-The output looks like `$<keyId>$AnonV1$<base64 ciphertext>`, where `AnonV1` is the marker saying what created the value — a value from a different class fails with an exception that names its creator. Values in the older format without the marker still decrypt, and `needsReEncrypt()` returns true for them, so a re-encryption sweep migrates them to the marked format. Unlike in `AuthenticatedPublicKeyEncryption`, the key id and the marker are not protected against tampering here — a sealed value has no place to verify them, so the [old caveat](#encrypt) stays.
+The output looks like `$<keyId>$AnonV1$<base64 ciphertext>`, where `AnonV1` is the marker saying what created the value — a value from a different class fails with an exception that names its creator. Values in the older format without the marker still decrypt, and `needsReEncrypt()` returns true for them, so a re-encryption sweep migrates them to the marked format. Unlike in the other two classes, the key id and the marker are not protected against tampering here — a sealed value has no place to verify them, so changing the key id just makes decryption try a different key, and never configure the same key under two different ids.
 
 Trying to decrypt a key id that only has a public key configured throws `MissingSecretKeyException`, which usually means the code runs on an encrypt-only deployment. Re-encryption after a key rotation therefore has to run where the secret keys live: configure the old secret key and the new public key (or the new pair), and the data encrypted with the old key can be decrypted and re-encrypted with the new one.
 
 ### When decryption fails
-Values with a marker say what created them: the two public-key classes refuse each other's marked values with an exception that names the creator, and `SymmetricKeyEncryption` rejects any marked value as a format error, so mixed-up values are easy to diagnose. The detective work below is only needed for values in the older format without the marker.
+Values with a marker say what created them: every class refuses another class's marked values with an exception that names the creator, so mixed-up values are easy to diagnose. The detective work below is only needed for values in the older format without the marker.
 
 Halite reports any well-formed unmarked value that `AnonymousPublicKeyEncryption` cannot decrypt as `InvalidKey: Incorrect secret key for this sealed message`: a wrong key, corrupted data, and data that was actually created by `SymmetricKeyEncryption` or `AuthenticatedPublicKeyEncryption` all look the same. Only a value that is not even valid base64 gets a different error, `InvalidMessage: Invalid character encoding`. If you see the wrong-key error on data that should be fine, check which class created the value: `SymmetricKeyEncryption` and `AuthenticatedPublicKeyEncryption` fail with `InvalidMessage` when fed each other's data or data created by `AnonymousPublicKeyEncryption`. Their encrypted part also always starts with `MUI` — the beginning of a header Halite adds to the output of those two classes, with the next characters changing with the Halite version — while the encrypted part made by `AnonymousPublicKeyEncryption` has no header and looks random. For unmarked values the key id is the only reliable way to tell them apart, so don't reuse a key id across classes.
 

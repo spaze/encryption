@@ -3,6 +3,7 @@ declare(strict_types = 1);
 
 namespace Spaze\Encryption;
 
+use JsonException;
 use ParagonIE\Halite\Alerts\CannotPerformOperation;
 use ParagonIE\Halite\Alerts\InvalidDigestLength;
 use ParagonIE\Halite\Alerts\InvalidKey;
@@ -17,6 +18,7 @@ use SodiumException;
 use Spaze\Encryption\Exceptions\ActiveKeyIdNotFoundException;
 use Spaze\Encryption\Exceptions\DecryptWithAdNeedsAdditionalDataException;
 use Spaze\Encryption\Exceptions\EncryptWithAdNeedsAdditionalDataException;
+use Spaze\Encryption\Exceptions\FormatMarkerMismatchException;
 use Spaze\Encryption\Exceptions\InvalidCipherTextFormatException;
 use Spaze\Encryption\Exceptions\InvalidKeyEncodingException;
 use Spaze\Encryption\Exceptions\InvalidKeyIdException;
@@ -25,6 +27,8 @@ use Spaze\Encryption\Exceptions\InvalidKeyPrefixException;
 use Spaze\Encryption\Exceptions\InvalidNumberOfComponentsException;
 use Spaze\Encryption\Exceptions\MissingKeyPrefixException;
 use Spaze\Encryption\Exceptions\UnknownEncryptionKeyIdException;
+use Spaze\Encryption\Exceptions\UnknownFormatMarkerException;
+use Spaze\Encryption\Format\FormatMarker;
 use Spaze\Encryption\Format\KeyEnvelope;
 use TypeError;
 
@@ -60,29 +64,38 @@ class SymmetricKeyEncryption
 
 
 	/**
+	 * The key id and the marker go into what the decryption verifies, so changing them
+	 * in the stored value makes decryption fail.
+	 *
 	 * @throws CannotPerformOperation
 	 * @throws InvalidDigestLength
 	 * @throws InvalidKey
 	 * @throws InvalidMessage
 	 * @throws InvalidType
+	 * @throws JsonException
 	 * @throws SodiumException
 	 * @throws TypeError
 	 */
 	public function encrypt(#[SensitiveParameter] string $data): string
 	{
 		$key = $this->getKey($this->activeKeyId);
-		$cipherText = Crypto::encrypt(new HiddenString($data), $key);
-		return $this->formatKeyCipherText($this->activeKeyId, $cipherText);
+		$boundData = $this->buildBoundAdditionalData($this->activeKeyId, FormatMarker::SymmetricKeyV1);
+		$cipherText = Crypto::encryptWithAD(new HiddenString($data), $key, $boundData);
+		return $this->formatKeyCipherText($this->activeKeyId, FormatMarker::SymmetricKeyV1, $cipherText);
 	}
 
 
 	/**
+	 * The key id and the marker are combined with the given additional data into what the decryption verifies,
+	 * so changing them in the stored value makes decryption fail.
+	 *
 	 * @throws CannotPerformOperation
 	 * @throws EncryptWithAdNeedsAdditionalDataException
 	 * @throws InvalidDigestLength
 	 * @throws InvalidKey
 	 * @throws InvalidMessage
 	 * @throws InvalidType
+	 * @throws JsonException
 	 * @throws SodiumException
 	 * @throws TypeError
 	 */
@@ -92,43 +105,56 @@ class SymmetricKeyEncryption
 			throw new EncryptWithAdNeedsAdditionalDataException();
 		}
 		$key = $this->getKey($this->activeKeyId);
-		$cipherText = Crypto::encryptWithAD(new HiddenString($data), $key, $additionalData);
-		return $this->formatKeyCipherText($this->activeKeyId, $cipherText);
+		$boundData = $this->buildBoundAdditionalData($this->activeKeyId, FormatMarker::SymmetricKeyWithAdV1, $additionalData);
+		$cipherText = Crypto::encryptWithAD(new HiddenString($data), $key, $boundData);
+		return $this->formatKeyCipherText($this->activeKeyId, FormatMarker::SymmetricKeyWithAdV1, $cipherText);
 	}
 
 
 	/**
 	 * @throws CannotPerformOperation
+	 * @throws FormatMarkerMismatchException
 	 * @throws InvalidDigestLength
 	 * @throws InvalidKey
 	 * @throws InvalidMessage
 	 * @throws InvalidSignature
 	 * @throws InvalidType
+	 * @throws JsonException
 	 * @throws SodiumException
 	 * @throws TypeError
 	 * @throws UnknownEncryptionKeyIdException
+	 * @throws UnknownFormatMarkerException
 	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException
 	 */
 	public function decrypt(string $data): string
 	{
-		[$keyId, $cipherText] = $this->parseKeyCipherText($data);
+		[$keyId, $marker, $cipherText] = $this->parseKeyCipherText($data);
+		$validMarker = $this->checkFormatMarker($marker, FormatMarker::SymmetricKeyV1);
 		$key = $this->getKey($keyId);
-		return Crypto::decrypt($cipherText, $key)->getString();
+		if ($validMarker === null) {
+			// Data from before the marker existed, nothing was added to what the decryption verifies back then
+			return Crypto::decrypt($cipherText, $key)->getString();
+		}
+		$boundData = $this->buildBoundAdditionalData($keyId, $validMarker);
+		return Crypto::decryptWithAD($cipherText, $key, $boundData)->getString();
 	}
 
 
 	/**
 	 * @throws CannotPerformOperation
 	 * @throws DecryptWithAdNeedsAdditionalDataException
+	 * @throws FormatMarkerMismatchException
 	 * @throws InvalidDigestLength
 	 * @throws InvalidKey
 	 * @throws InvalidMessage
 	 * @throws InvalidSignature
 	 * @throws InvalidType
+	 * @throws JsonException
 	 * @throws SodiumException
 	 * @throws TypeError
 	 * @throws UnknownEncryptionKeyIdException
+	 * @throws UnknownFormatMarkerException
 	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException
 	 */
@@ -137,23 +163,31 @@ class SymmetricKeyEncryption
 		if ($additionalData === '') {
 			throw new DecryptWithAdNeedsAdditionalDataException();
 		}
-		[$keyId, $cipherText] = $this->parseKeyCipherText($data);
+		[$keyId, $marker, $cipherText] = $this->parseKeyCipherText($data);
+		$validMarker = $this->checkFormatMarker($marker, FormatMarker::SymmetricKeyWithAdV1);
 		$key = $this->getKey($keyId);
-		return Crypto::decryptWithAD($cipherText, $key, $additionalData)->getString();
+		if ($validMarker === null) {
+			// Data from before the marker existed, the additional data was used alone back then
+			return Crypto::decryptWithAD($cipherText, $key, $additionalData)->getString();
+		}
+		$boundData = $this->buildBoundAdditionalData($keyId, $validMarker, $additionalData);
+		return Crypto::decryptWithAD($cipherText, $key, $boundData)->getString();
 	}
 
 
 	/**
-	 * Checks if the given data are encrypted with an inactive key
-	 * and thus should be re-encrypted with the currently active one.
+	 * Checks if the given data should be re-encrypted with the currently active key:
+	 * either they are encrypted with an inactive key, or they are stored in the older format
+	 * without the marker, and re-encrypting them adds it.
 	 *
+	 * @throws FormatMarkerMismatchException
 	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException
+	 * @throws UnknownFormatMarkerException
 	 */
 	public function needsReEncrypt(string $data): bool
 	{
-		[$keyId] = $this->parseKeyCipherText($data);
-		return $keyId !== $this->activeKeyId;
+		return $this->needsReEncryptMarked($data, $this->activeKeyId, FormatMarker::SymmetricKeyV1, FormatMarker::SymmetricKeyWithAdV1);
 	}
 
 

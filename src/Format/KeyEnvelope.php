@@ -95,30 +95,6 @@ trait KeyEnvelope
 
 
 	/**
-	 * @return array{0:non-empty-string, 1:non-empty-string}
-	 * @throws InvalidCipherTextFormatException
-	 * @throws InvalidNumberOfComponentsException
-	 */
-	private function parseKeyCipherText(string $data): array
-	{
-		$data = explode(self::KEY_CIPHERTEXT_SEPARATOR, $data);
-		if (count($data) !== 3) {
-			throw new InvalidNumberOfComponentsException(StoredFormat::PlainOnly);
-		}
-		if ($data[0] !== '' || $data[1] === '' || $data[2] === '') {
-			throw new InvalidCipherTextFormatException(StoredFormat::PlainOnly);
-		}
-		return [$data[1], $data[2]];
-	}
-
-
-	private function formatKeyCipherText(string $keyId, string $cipherText): string
-	{
-		return self::KEY_CIPHERTEXT_SEPARATOR . $keyId . self::KEY_CIPHERTEXT_SEPARATOR . $cipherText;
-	}
-
-
-	/**
 	 * Reads both the marked format and the one without a marker, because data encrypted
 	 * before the marker existed has to keep decrypting.
 	 *
@@ -126,21 +102,21 @@ trait KeyEnvelope
 	 * @throws InvalidCipherTextFormatException
 	 * @throws InvalidNumberOfComponentsException
 	 */
-	private function parseMarkedKeyCipherText(string $data): array
+	private function parseKeyCipherText(string $data): array
 	{
 		$data = explode(self::KEY_CIPHERTEXT_SEPARATOR, $data);
 		$count = count($data);
 		if ($count !== 3 && $count !== 4) {
-			throw new InvalidNumberOfComponentsException(StoredFormat::MarkedOrPlain);
+			throw new InvalidNumberOfComponentsException();
 		}
 		if ($data[0] !== '' || $data[1] === '' || $data[2] === '' || ($count === 4 && $data[3] === '')) {
-			throw new InvalidCipherTextFormatException(StoredFormat::MarkedOrPlain);
+			throw new InvalidCipherTextFormatException();
 		}
 		return $count === 3 ? [$data[1], null, $data[2]] : [$data[1], $data[2], $data[3]];
 	}
 
 
-	private function formatMarkedKeyCipherText(string $keyId, FormatMarker $marker, string $cipherText): string
+	private function formatKeyCipherText(string $keyId, FormatMarker $marker, string $cipherText): string
 	{
 		return self::KEY_CIPHERTEXT_SEPARATOR . $keyId . self::KEY_CIPHERTEXT_SEPARATOR . $marker->value . self::KEY_CIPHERTEXT_SEPARATOR . $cipherText;
 	}
@@ -180,23 +156,25 @@ trait KeyEnvelope
 	 */
 	private function needsReEncryptMarked(string $data, string $activeKeyId, FormatMarker ...$expectedMarkers): bool
 	{
-		[$keyId, $marker] = $this->parseMarkedKeyCipherText($data);
-		$this->checkFormatMarker($marker, ...$expectedMarkers);
-		return $keyId !== $activeKeyId || $marker === null;
+		[$keyId, $marker] = $this->parseKeyCipherText($data);
+		$validMarker = $this->checkFormatMarker($marker, ...$expectedMarkers);
+		return $keyId !== $activeKeyId || $validMarker === null;
 	}
 
 
 	/**
 	 * No marker is fine, that's data from before the marker existed; a marker that is present
-	 * has to be one of the expected ones.
+	 * has to be one of the expected ones. Returns the validated marker, so that the callers build
+	 * the verified value from what the stored data actually says, not from what they happen to expect:
+	 * the two are the same today, but only the former stays correct when a method accepts more markers.
 	 *
 	 * @throws FormatMarkerMismatchException
 	 * @throws UnknownFormatMarkerException
 	 */
-	private function checkFormatMarker(?string $marker, FormatMarker ...$expectedMarkers): void
+	private function checkFormatMarker(?string $marker, FormatMarker ...$expectedMarkers): ?FormatMarker
 	{
 		if ($marker === null) {
-			return;
+			return null;
 		}
 		$actualMarker = FormatMarker::tryFrom($marker);
 		if ($actualMarker === null) {
@@ -205,6 +183,7 @@ trait KeyEnvelope
 		if (!in_array($actualMarker, $expectedMarkers, true)) {
 			throw new FormatMarkerMismatchException($actualMarker);
 		}
+		return $actualMarker;
 	}
 
 }
